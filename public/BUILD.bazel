@@ -1,0 +1,38 @@
+load("@aspect_rules_js//contrib/nextjs:defs.bzl", "nextjs")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("@npm//public:next/package_json.bzl", next_bin = "bin")
+
+npm_link_all_packages()
+
+next_bin.next_binary(
+    name = "velox_frontend_bin",
+    visibility = ["//visibility:public"]
+)
+
+js_library(
+    name = "velox_frontend_lib",
+    srcs = glob([
+        "app/**",
+        "pages/**",
+        "public/**",
+        "*.js",
+        "*.mjs",
+        "*.cjs",
+        "*.ts",
+        "*.tsx",
+        "*.json",
+    ], allow_empty = True),
+    deps = [
+        ":node_modules/next",
+        ":node_modules/react",
+        ":node_modules/react-dom",
+    ],
+)
+
+nextjs(
+   name = "velox_frontend",
+   srcs = [":velox_frontend_lib"],
+   config = "next.config.ts",
+   next_js_binary = ":velox_frontend_bin",
+)
