@@ -1,0 +1,13 @@
+module(name = "velox")
+
+####
+# General configuration
+# 
+
+####
+# Go configuration
+#
+
+####
+# Javascript configuration
+# 
