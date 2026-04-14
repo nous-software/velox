@@ -2,7 +2,7 @@ load("@gazelle//:def.bzl", "gazelle")
 
 ###
 # Enable gazelle
-# 
+#
 
 # gazelle:prefix velox.dev
 gazelle(name = "gazelle")
@@ -13,5 +13,5 @@ gazelle(name = "gazelle")
 
 alias(
     name = "velox-server",
-    actual = "//cmd:velox-server"
+    actual = "//cmd:velox-server",
 )
