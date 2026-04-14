@@ -1,4 +1,17 @@
 load("@gazelle//:def.bzl", "gazelle")
 
+###
+# Enable gazelle
+# 
+
 # gazelle:prefix velox.dev
 gazelle(name = "gazelle")
+
+####
+# Aliases for easier builds
+#
+
+alias(
+    name = "velox-server",
+    actual = "//cmd:velox-server"
+)
