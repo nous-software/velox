@@ -1,7 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"velox.dev/pkg"
+)
 
 func main() {
 	fmt.Println("hello world")
+	pkg.DoStuff()
 }

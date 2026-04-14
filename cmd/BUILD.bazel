@@ -11,4 +11,5 @@ go_library(
     srcs = ["server.go"],
     importpath = "velox.dev/cmd",
     visibility = ["//visibility:private"],
+    deps = ["//pkg"],
 )
