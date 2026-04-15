@@ -24,9 +24,15 @@ js_library(
         "*.json",
     ], allow_empty = True),
     deps = [
+        ":node_modules/@tailwindcss/postcss",
+        ":node_modules/@types/node",
+        ":node_modules/@types/react",
+        ":node_modules/@types/react-dom",
         ":node_modules/next",
         ":node_modules/react",
         ":node_modules/react-dom",
+        ":node_modules/tailwindcss",
+        ":node_modules/typescript",
     ],
 )
 

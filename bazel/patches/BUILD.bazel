@@ -1,0 +1,3 @@
+exports_files([
+    "aspect_rules_js_nextjs_webpack.patch",
+])
