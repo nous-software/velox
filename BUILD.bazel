@@ -1,5 +1,7 @@
 load("@gazelle//:def.bzl", "gazelle")
 
+exports_files([".swcrc"])
+
 ###
 # Enable gazelle
 #
@@ -12,6 +14,6 @@ gazelle(name = "gazelle")
 #
 
 alias(
-    name = "velox-server",
-    actual = "//cmd:velox-server",
+    name = "velox_server",
+    actual = "//cmd:velox_server",
 )

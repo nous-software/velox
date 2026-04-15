@@ -1,0 +1,75 @@
+load("@aspect_rules_js//contrib/nextjs:defs.bzl", "nextjs")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("@npm//public:next/package_json.bzl", next_bin = "bin")
+
+npm_link_all_packages()
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//visibility:public"],
+)
+
+next_bin.next_binary(
+    name = "velox_frontend_bin",
+    visibility = ["//visibility:public"],
+)
+
+APP_SRCS = glob(
+    [
+        "app/**/*.tsx",
+        "app/**/*.ts",
+        "app/**/*.js",
+    ],
+    allow_empty = True,
+)
+
+APP_ASSETS = glob(
+    [
+        "app/**/*.css",
+        "app/**/*.ico",
+        "app/**/*.png",
+        "public/**",
+    ],
+    allow_empty = True,
+)
+
+MODULES = [
+## Type declarations
+    ":node_modules/@types/node",
+    ":node_modules/@types/react",
+
+## Dependencies
+    ":node_modules/geist",
+    ":node_modules/react-dom",
+    ":node_modules/react",
+    ":node_modules/next",
+]
+
+js_library(
+    name = "velox_frontend_lib",
+    srcs = APP_SRCS,
+    data = APP_ASSETS,
+    deps = MODULES
+)
+
+BUILD_ASSETS = [
+## Metadata
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.mjs",
+
+## Build dependencies
+    ":node_modules/typescript",
+    ":node_modules/tailwindcss",
+    ":node_modules/@tailwindcss/postcss",
+]
+
+nextjs(
+    name = "velox_frontend",
+    srcs = [":velox_frontend_lib"] + APP_ASSETS,
+    config = "next.config.ts",
+    data = BUILD_ASSETS,
+    next_js_binary = ":velox_frontend_bin",
+)

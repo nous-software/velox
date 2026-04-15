@@ -1,0 +1,21 @@
+diff --git a/contrib/nextjs/defs.bzl b/contrib/nextjs/defs.bzl
+--- a/contrib/nextjs/defs.bzl
++++ b/contrib/nextjs/defs.bzl
+@@ -197,7 +197,7 @@ def nextjs_build(name, config, srcs, next_js_binary, data = [], **kwargs):
+     js_run_binary(
+         name = name,
+         tool = next_js_binary,
+-        args = ["build"],
++        args = ["build", "--webpack"],
+         srcs = srcs + data + [config],
+         out_dirs = [_next_build_out],
+         chdir = native.package_name(),
+@@ -257,7 +257,7 @@ def nextjs_dev(name, config, srcs, data, next_js_binary, **kwargs):
+     js_run_devserver(
+         name = name,
+         tool = next_js_binary,
+-        args = ["dev"],
++        args = ["dev", "--webpack"],
+         data = srcs + data + [config],
+         chdir = native.package_name(),
+         **kwargs
