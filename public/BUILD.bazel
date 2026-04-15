@@ -21,6 +21,20 @@ PUBLIC_ASSETS = glob(
     allow_empty = True,
 )
 
+NEXT_RUNTIME_DEPS = [
+    ":node_modules/next",
+    ":node_modules/react",
+]
+
+APP_DEPS = [
+    ":node_modules/@types/react",
+] + NEXT_RUNTIME_DEPS
+
+NEXT_CONFIG_DEPS = [
+    ":node_modules/@types/node",
+    ":node_modules/next",
+]
+
 next_bin.next_binary(
     name = "velox_frontend_bin",
     visibility = ["//visibility:public"],
@@ -35,26 +49,17 @@ ts_config(
 ts_project(
     name = "app",
     srcs = APP_SRCS,
-    data = [
-        ":node_modules/next",
-        ":node_modules/react",
+    data = NEXT_RUNTIME_DEPS + [
         ":node_modules/tailwindcss",
     ] + APP_STYLES,
-    deps = [
-        ":node_modules/@types/react",
-        ":node_modules/next",
-        ":node_modules/react",
-    ],
+    deps = APP_DEPS,
 )
 
 ts_project(
     name = "next.config",
     srcs = ["next.config.ts"],
     data = [":node_modules/next"],
-    deps = [
-        ":node_modules/@types/node",
-        ":node_modules/next",
-    ],
+    deps = NEXT_CONFIG_DEPS,
 )
 
 js_library(
@@ -62,8 +67,7 @@ js_library(
     deps = [
         ":app",
         ":next.config",
-        ":node_modules/next",
-        ":node_modules/react",
+    ] + NEXT_RUNTIME_DEPS + [
         ":node_modules/react-dom",
     ],
 )
