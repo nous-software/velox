@@ -6,39 +6,7 @@ load("@npm//public:next/package_json.bzl", next_bin = "bin")
 load("//bazel:ts_project.bzl", "ts_project")
 
 exports_files(["tsconfig.json"])
-
 npm_link_all_packages()
-
-APP_SRCS = glob(
-    ["app/**/*.tsx"],
-    allow_empty = True,
-)
-
-APP_STYLES = glob(["app/**/*.css"])
-
-PUBLIC_ASSETS = glob(
-    ["public/**"],
-    allow_empty = True,
-)
-
-NEXT_RUNTIME_DEPS = [
-    ":node_modules/next",
-    ":node_modules/react",
-]
-
-APP_DEPS = [
-    ":node_modules/@types/react",
-] + NEXT_RUNTIME_DEPS
-
-NEXT_CONFIG_DEPS = [
-    ":node_modules/@types/node",
-    ":node_modules/next",
-]
-
-next_bin.next_binary(
-    name = "velox_frontend_bin",
-    visibility = ["//visibility:public"],
-)
 
 ts_config(
     name = "tsconfig",
@@ -46,39 +14,44 @@ ts_config(
     visibility = ["//visibility:public"],
 )
 
-ts_project(
-    name = "app",
-    srcs = APP_SRCS,
-    data = NEXT_RUNTIME_DEPS + [
-        ":node_modules/tailwindcss",
-    ] + APP_STYLES,
-    deps = APP_DEPS,
+next_bin.next_binary(
+    name = "velox_frontend_bin",
+    visibility = ["//visibility:public"],
 )
 
-ts_project(
-    name = "next.config",
-    srcs = ["next.config.ts"],
-    data = [":node_modules/next"],
-    deps = NEXT_CONFIG_DEPS,
+APP_SRCS = glob(
+    [
+        "app/**/*.tsx",
+        "app/**/*.ts",
+        "app/**/*.js",
+        "app/**/*.css"
+    ],
+    allow_empty = True,
 )
+
+APP_ASSETS = glob(
+    ["public/**"],
+    allow_empty = True,
+)
+
+MODULES = [
+    ":node_modules/@types/node",
+    ":node_modules/@types/react",
+    ":node_modules/react-dom",
+    ":node_modules/next",
+    ":node_modules/react",
+]
 
 js_library(
     name = "velox_frontend_lib",
-    deps = [
-        ":app",
-        ":next.config",
-    ] + NEXT_RUNTIME_DEPS + [
-        ":node_modules/react-dom",
-    ],
+    srcs = APP_SRCS,
+    data = APP_SRCS + APP_ASSETS,
+    deps = MODULES
 )
 
 nextjs(
     name = "velox_frontend",
     srcs = [":velox_frontend_lib"],
     config = "next.config.ts",
-    data = PUBLIC_ASSETS + [
-        "postcss.config.mjs",
-        ":node_modules/@tailwindcss/postcss",
-    ],
     next_js_binary = ":velox_frontend_bin",
 )
