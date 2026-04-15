@@ -20,7 +20,7 @@ alias(
 
 alias(
     name = "velox_frontend",
-    actual = "//public:velox_frontend"
+    actual = "//public:velox_frontend",
 )
 
 ####
@@ -32,5 +32,5 @@ filegroup(
     srcs = [
         "//:velox_frontend",
         "//:velox_server",
-    ]
+    ],
 )
