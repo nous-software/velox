@@ -3,11 +3,8 @@ load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_config")
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@npm//public:next/package_json.bzl", next_bin = "bin")
-load("//bazel:ts_project.bzl", "ts_project")
 
-exports_files(["tsconfig.json"])
 npm_link_all_packages()
-
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
@@ -38,20 +35,30 @@ MODULES = [
     ":node_modules/@types/node",
     ":node_modules/@types/react",
     ":node_modules/react-dom",
-    ":node_modules/next",
     ":node_modules/react",
+    ":node_modules/next",
 ]
 
 js_library(
     name = "velox_frontend_lib",
     srcs = APP_SRCS,
-    data = APP_SRCS + APP_ASSETS,
+    data = APP_ASSETS,
     deps = MODULES
 )
+
+BUILD_ASSETS = [
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.mjs",
+    ":node_modules/typescript",
+    ":node_modules/tailwindcss",
+    ":node_modules/@tailwindcss/postcss",
+]
 
 nextjs(
     name = "velox_frontend",
     srcs = [":velox_frontend_lib"],
     config = "next.config.ts",
+    data = BUILD_ASSETS,
     next_js_binary = ":velox_frontend_bin",
 )
