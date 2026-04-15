@@ -6,6 +6,7 @@ module(name = "velox")
 # General configuration
 # 
 bazel_dep(name = "gazelle", version = "0.50.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
 
 ####
 # Go configuration
@@ -25,7 +26,10 @@ use_repo(go, "go")
 # 
 bazel_dep(name = "rules_nodejs", version = "6.7.4")
 bazel_dep(name = "aspect_rules_js", version = "3.0.3")
+bazel_dep(name = "aspect_rules_ts", version = "3.8.8")
+bazel_dep(name = "aspect_rules_swc", version = "2.7.1")
 
+## patch aspect to invoke nextjs cli with `--webpack`
 single_version_override(
     module_name = "aspect_rules_js",
     version = "3.0.3",
@@ -54,3 +58,8 @@ npm.npm_translate_lock(
   pnpm_lock = "//public:pnpm-lock.yaml",
 )
 use_repo(npm, "npm")
+
+## setup TypeScript
+rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
+rules_ts_ext.deps()
+use_repo(rules_ts_ext, "npm_typescript")

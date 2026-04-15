@@ -1,5 +1,7 @@
 load("@gazelle//:def.bzl", "gazelle")
 
+exports_files([".swcrc"])
+
 ###
 # Enable gazelle
 #
