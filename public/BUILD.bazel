@@ -7,22 +7,25 @@ npm_link_all_packages()
 
 next_bin.next_binary(
     name = "velox_frontend_bin",
-    visibility = ["//visibility:public"]
+    visibility = ["//visibility:public"],
 )
 
 js_library(
     name = "velox_frontend_lib",
-    srcs = glob([
-        "app/**",
-        "pages/**",
-        "public/**",
-        "*.js",
-        "*.mjs",
-        "*.cjs",
-        "*.ts",
-        "*.tsx",
-        "*.json",
-    ], allow_empty = True),
+    srcs = glob(
+        [
+            "app/**",
+            "pages/**",
+            "public/**",
+            "*.js",
+            "*.mjs",
+            "*.cjs",
+            "*.ts",
+            "*.tsx",
+            "*.json",
+        ],
+        allow_empty = True,
+    ),
     deps = [
         ":node_modules/@tailwindcss/postcss",
         ":node_modules/@types/node",
@@ -37,8 +40,8 @@ js_library(
 )
 
 nextjs(
-   name = "velox_frontend",
-   srcs = [":velox_frontend_lib"],
-   config = "next.config.ts",
-   next_js_binary = ":velox_frontend_bin",
+    name = "velox_frontend",
+    srcs = [":velox_frontend_lib"],
+    config = "next.config.ts",
+    next_js_binary = ":velox_frontend_bin",
 )
