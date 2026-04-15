@@ -17,3 +17,20 @@ alias(
     name = "velox_server",
     actual = "//cmd:velox_server",
 )
+
+alias(
+    name = "velox_frontend",
+    actual = "//public:velox_frontend"
+)
+
+####
+# Block builds
+#
+
+filegroup(
+    name = "velox",
+    srcs = [
+        "//:velox_frontend",
+        "//:velox_server",
+    ]
+)

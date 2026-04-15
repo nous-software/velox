@@ -9,57 +9,8 @@ bazel_dep(name = "gazelle", version = "0.50.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 
 ####
-# Go configuration
+# Including shards
 #
-bazel_dep(name = "rules_go", version = "0.60.0")
 
-## setup go toolchain
-go = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go.download(
-    name = "go",
-    version = "1.26.2"
-)
-use_repo(go, "go")
-
-####
-# Javascript configuration
-# 
-bazel_dep(name = "rules_nodejs", version = "6.7.4")
-bazel_dep(name = "aspect_rules_js", version = "3.0.3")
-bazel_dep(name = "aspect_rules_ts", version = "3.8.8")
-bazel_dep(name = "aspect_rules_swc", version = "2.7.1")
-
-## patch aspect to invoke nextjs cli with `--webpack`
-single_version_override(
-    module_name = "aspect_rules_js",
-    version = "3.0.3",
-    patches = ["//bazel/patches:aspect_rules_js_nextjs_webpack.patch"],
-    patch_strip = 1,
-)
-
-## setup js toolchain
-node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
-node.toolchain(node_version_from_nvmrc = "//:.nvmrc")
-use_repo(node, "nodejs_toolchains")
-
-## setup package manager
-pnpm = use_extension("@aspect_rules_js//npm:extensions.bzl", "pnpm")
-pnpm.pnpm(
-    name = "pnpm",
-    pnpm_version = "10.33.0",
-    pnpm_version_integrity = "sha512-EFaLtKavtYyes2MNqQzJUWQXq+vT+rvmc58K55VyjaFJHp21pUTHatjrdXD1xLs9bGN7LLQb/c20f6gjyGSTGQ==",
-)
-use_repo(pnpm, "pnpm", "pnpm__links")
-
-## configure package manager
-npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
-npm.npm_translate_lock(
-  name = "npm",
-  pnpm_lock = "//public:pnpm-lock.yaml",
-)
-use_repo(npm, "npm")
-
-## setup TypeScript
-rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
-rules_ts_ext.deps()
-use_repo(rules_ts_ext, "npm_typescript")
+include("//bazel:go.MODULE.bazel")
+include("//bazel:js.MODULE.bazel")
