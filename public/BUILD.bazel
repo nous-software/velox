@@ -8,13 +8,9 @@ npm_link_all_packages()
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
-    visibility = ["//visibility:public"],
 )
 
-next_bin.next_binary(
-    name = "velox_frontend_bin",
-    visibility = ["//visibility:public"],
-)
+next_bin.next_binary(name = "velox_frontend_bin")
 
 APP_SRCS = glob(
     [
@@ -72,4 +68,5 @@ nextjs(
     config = "next.config.ts",
     data = BUILD_ASSETS,
     next_js_binary = ":velox_frontend_bin",
+    visibility = ["//visibility:public"],
 )
