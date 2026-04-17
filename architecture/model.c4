@@ -1,0 +1,412 @@
+// Velox architecture — model.
+// Actors, external systems, the Velox system + its containers, and all relationships.
+//
+// Key design points:
+//   - True E2E via MLS (RFC 9420). API acts as an MLS server; group state lives in Postgres.
+//   - Passphrase-derived KEK wraps the real encryption key, stored server-side by Identity.
+//     First-factor login (username/password + optional OTP) is separate from the KEK challenge.
+//   - Matrix-style federation: chats are replicated across participating instances;
+//     per-chat leader election runs between home instances via Interconnect.
+//   - Federation trust: DNS SRV + .well-known for discovery; TLS (web PKI) for channels;
+//     ed25519 instance signing keys for hop-independent payload authenticity.
+//   - All services stateless; an external load balancer fronts each service
+//     (not modeled as a container).
+//   - Admin plane is a separate deployment (Admin UI + Admin API) for plugin registry,
+//     feature flags, IdP config, and audit.
+//   - Plugins ship as WASM (wazero host in Go services); artifacts in the blob store.
+//   - Each service owns its own Postgres and Valkey instance; Scylla and Kafka are
+//     intentionally shared (single canonical message store, single event bus).
+
+model {
+  // -------- External actors --------
+  user = actor "User" {
+    description '''
+      A person using Velox to chat. Pseudonymous by default
+      (passphrase-only account); may optionally use an external IdP.
+    '''
+  }
+
+  adminOperator = actor "Admin / Operator" {
+    description '''
+      Operates a Velox instance. Audits system state, manages plugins,
+      toggles runtime features, configures IdPs.
+    '''
+  }
+
+  // -------- External systems --------
+  otherVelox = externalSystem "Other Velox Instance" {
+    #federation
+    description '''
+      A federated peer Velox deployment. Communicates over HTTPS with
+      ed25519-signed payloads. Participates in per-chat MLS leader election.
+    '''
+  }
+
+  idp = externalSystem "External IdP" {
+    description "OIDC provider. Opt-in convenience path for commercial deployments."
+  }
+
+  apns = externalSystem "Apple Push Notification Service" {
+    description "iOS / macOS push delivery."
+  }
+
+  fcm = externalSystem "Firebase Cloud Messaging" {
+    description "Android + web push delivery."
+  }
+
+  webPush = externalSystem "Web Push Service" {
+    description "Browser push via VAPID."
+  }
+
+  dns = externalSystem "DNS" {
+    description '''
+      Federation discovery: SRV records (_velox._tcp.<domain>) plus
+      https://<domain>/.well-known/velox/server JSON with endpoint
+      and ed25519 signing keys. DNSSEC recommended.
+    '''
+  }
+
+  objectStorage = externalSystem "S3-Compatible Object Storage" {
+    description '''
+      Encrypted media blobs (client-uploaded via pre-signed URLs) and
+      plugin WASM artifacts. Backend chosen by the deployer (MinIO, AWS S3, ...).
+    '''
+  }
+
+  // -------- The Velox system --------
+  velox = system "Velox" {
+    description '''
+      Federated, E2E-encrypted chat. MLS over WebTransport; Kafka is
+      the internal event bus; chats replicate across instances.
+    '''
+
+    // ---- Frontends ----
+    webUI = webapp "Web UI" {
+      #frontend
+      technology "React, Next.js"
+      icon tech:react
+      description '''
+        Browser client. Derives KEK from user passphrase, unwraps the
+        stored encryption key, runs the MLS client. Never sends plaintext
+        or private key material to the server.
+      '''
+    }
+
+    desktopApp = nativeApp "Desktop App" {
+      #frontend
+      technology "Tauri / native"
+      description '''
+        Native desktop client (Linux / macOS / Windows). Same MLS + key
+        handling as Web UI; may cache wrapped keys locally.
+      '''
+    }
+
+    mobileApp = nativeApp "Mobile App" {
+      #frontend
+      technology "React Native / native"
+      description '''
+        iOS / Android client. Registers APNs/FCM device tokens via Identity
+        so Push Gateway can reach the device while the app is backgrounded.
+      '''
+    }
+
+    // ---- Admin plane (separate deployment) ----
+    adminUI = webapp "Admin UI" {
+      #adminPlane
+      technology "React, Next.js"
+      icon tech:react
+      description '''
+        Operator console. Audits state, manages plugins, feature flags,
+        IdP configuration. Separate deployment from the user-facing web app.
+      '''
+    }
+
+    adminAPI = service "Admin API" {
+      #adminPlane
+      #backend
+      technology "Go"
+      description '''
+        Backend for the Admin UI. Centralizes RBAC, audit logging,
+        feature-flag CRUD, plugin registry mutations. Stateless.
+      '''
+    }
+
+    // ---- Core backend services ----
+    apiService = service "API" {
+      #backend
+      technology "Go"
+      description '''
+        MLS server for chat management. Owns chat/membership records and
+        MLS group state (epoch, tree, commits). Tracks per-chat leadership
+        term. Exposes history read by delegating to Store. Hosts WASM
+        plugin points for message lifecycle hooks.
+      '''
+    }
+
+    deliveryService = service "Delivery" {
+      #backend
+      technology "Go, WebTransport"
+      description '''
+        Stateless real-time fan-out over WebTransport. Publishes/consumes
+        on Kafka for cross-pod distribution. Presence + per-connection
+        rate limits live in Valkey.
+      '''
+    }
+
+    storeService = service "Store" {
+      #backend
+      technology "Go"
+      description '''
+        Consumes the messages topic and persists ciphertext to Scylla.
+        Exposes paginated history read: merges the unflushed Kafka tail
+        with Scylla so clients see a consistent stream.
+      '''
+    }
+
+    identityService = service "Identity" {
+      #backend
+      technology "Go"
+      description '''
+        Auth gate + key vault. Stores username / password-hash / OTP /
+        challenge artifacts / passphrase-wrapped encryption keys.
+        Issues JWTs after a successful KEK challenge. Optionally federates
+        to external IdPs (still gated by a KEK unlock on the client).
+      '''
+    }
+
+    interconnectService = service "Interconnect" {
+      #backend
+      #federation
+      technology "Go"
+      description '''
+        Federation bridge. Consumes federation-egress from Kafka and
+        delivers to peer instances; accepts federation-ingress and
+        republishes to local Kafka. Runs per-chat leader election
+        (lease + fencing token), forwards MLS ops to the leader
+        instance when this instance is a non-leader participant,
+        aggregates peer capability announcements.
+      '''
+    }
+
+    pushGateway = service "Push Gateway" {
+      #backend
+      technology "Go"
+      description '''
+        Consumes push-notifications topic and dispatches to APNs / FCM /
+        Web Push. Kept separate from Delivery to isolate third-party
+        vendor dependencies and their reliability characteristics.
+      '''
+    }
+
+    // ---- Data plane ----
+    // Each service that needs Postgres or Valkey owns its own instance —
+    // databases are never shared between services. Scylla and Kafka are
+    // intentionally shared (Scylla is the one canonical message store;
+    // Kafka is the cross-service event bus).
+
+    apiPostgres = datastore "API Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Chats, memberships, MLS group state (epoch, tree, commits), leader-term bookkeeping."
+    }
+
+    identityPostgres = datastore "Identity Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Identity records, password hashes, OTP secrets, challenge artifacts, passphrase-wrapped encryption keys."
+    }
+
+    adminPostgres = datastore "Admin Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Runtime config, feature flags, plugin registry metadata, audit log."
+    }
+
+    apiValkey = datastore "API Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "API query cache, session cache, API-side rate-limit counters."
+    }
+
+    identityValkey = datastore "Identity Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Auth session state, OTP verification state, login rate-limits."
+    }
+
+    deliveryValkey = datastore "Delivery Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Presence, per-connection rate limits, WebTransport session hints."
+    }
+
+    scylla = datastore "Scylla" {
+      #data
+      technology "ScyllaDB / Cassandra"
+      icon tech:cassandra
+      description '''
+        High-volume ciphertext message store. Partitioned by (chat_id,
+        time-bucket) for read throughput; append-only. Shared by design —
+        Store is the only service that reads/writes it.
+      '''
+    }
+
+    kafka = broker "Kafka" {
+      #data
+      technology "Apache Kafka"
+      icon tech:kafka
+      description '''
+        Central event bus. Logical topics: messages, federation-egress,
+        federation-ingress, presence, push-notifications, admin-events,
+        plugin-events. Shared by design.
+      '''
+    }
+
+    // ---- Relationships: frontend -> backend ----
+    webUI -> identityService "login + KEK challenge, JWT issuance" {
+      technology "HTTPS"
+    }
+    webUI -> apiService "chat mgmt, MLS ops, history read" {
+      technology "HTTPS"
+    }
+    webUI -[realtime]-> deliveryService "live messages, presence" {
+      technology "WebTransport / QUIC"
+    }
+
+    desktopApp -> identityService "login + KEK challenge" {
+      technology "HTTPS"
+    }
+    desktopApp -> apiService "chat mgmt, MLS ops, history" {
+      technology "HTTPS"
+    }
+    desktopApp -[realtime]-> deliveryService "live messages, presence" {
+      technology "WebTransport / QUIC"
+    }
+
+    mobileApp -> identityService "login + KEK challenge, registers push token" {
+      technology "HTTPS"
+    }
+    mobileApp -> apiService "chat mgmt, MLS ops, history" {
+      technology "HTTPS"
+    }
+    mobileApp -[realtime]-> deliveryService "live messages, presence" {
+      technology "WebTransport / QUIC"
+    }
+
+    // ---- Admin plane ----
+    adminUI -> adminAPI "operator actions" {
+      technology "HTTPS"
+    }
+    adminAPI -> adminPostgres "config, flags, plugin registry, audit log" {
+      technology "SQL"
+    }
+    adminAPI -[async]-> kafka "publishes admin-events, plugin-events" {
+      technology "Kafka producer"
+    }
+
+    // ---- Core backend <-> data ----
+    apiService -> apiPostgres "chat, membership, MLS group state" {
+      technology "SQL"
+    }
+    apiService -> apiValkey "query cache, sessions, rate limits" {
+      technology "RESP"
+    }
+    apiService -> storeService "history read on behalf of clients" {
+      technology "gRPC"
+    }
+    apiService -> identityService "key material / membership checks" {
+      technology "gRPC"
+    }
+    apiService -[async]-> kafka "produces messages, federation-egress, push-notifications" {
+      technology "Kafka producer"
+    }
+    apiService -[async]-> kafka "consumes plugin-events for hot-reload" {
+      technology "Kafka consumer"
+    }
+
+    deliveryService -[async]-> kafka "produces + consumes messages, presence" {
+      technology "Kafka"
+    }
+    deliveryService -> deliveryValkey "presence, per-connection rate limits" {
+      technology "RESP"
+    }
+
+    storeService -[async]-> kafka "consumes messages" {
+      technology "Kafka consumer"
+    }
+    storeService -> scylla "persist ciphertext; paginated reads" {
+      technology "CQL"
+    }
+
+    identityService -> identityPostgres "identity, wrapped keys, challenges, OTP" {
+      technology "SQL"
+    }
+    identityService -> identityValkey "auth session + OTP state" {
+      technology "RESP"
+    }
+
+    interconnectService -[async]-> kafka "consumes federation-egress; produces federation-ingress, messages" {
+      technology "Kafka"
+    }
+    interconnectService -> apiService "forward MLS ops when this instance is chat leader" {
+      technology "gRPC"
+    }
+    interconnectService -> identityService "fetch user / chat key material for peers" {
+      technology "gRPC"
+    }
+
+    pushGateway -[async]-> kafka "consumes push-notifications" {
+      technology "Kafka consumer"
+    }
+  }
+
+  // -------- Cross-boundary relationships --------
+  user -> velox.webUI "chats via browser"
+  user -> velox.desktopApp "chats via desktop"
+  user -> velox.mobileApp "chats via mobile"
+  adminOperator -> velox.adminUI "operates the instance"
+
+  velox.webUI -> objectStorage "encrypted media upload/download" {
+    technology "HTTPS, pre-signed URLs"
+  }
+  velox.desktopApp -> objectStorage "encrypted media" {
+    technology "HTTPS"
+  }
+  velox.mobileApp -> objectStorage "encrypted media" {
+    technology "HTTPS"
+  }
+
+  velox.adminAPI -> objectStorage "store/fetch plugin WASM artifacts" {
+    technology "HTTPS"
+  }
+
+  velox.identityService -> idp "OIDC login (optional)" {
+    technology "OIDC"
+  }
+
+  velox.interconnectService -[federation]-> otherVelox "federates MLS commits, presence, key requests" {
+    technology "HTTPS + ed25519-signed payloads"
+  }
+  otherVelox -[federation]-> velox.interconnectService "inbound federation" {
+    technology "HTTPS + ed25519-signed payloads"
+  }
+  velox.interconnectService -> dns "discovers peers: SRV + .well-known/velox/server" {
+    technology "DNS + HTTPS"
+  }
+
+  velox.pushGateway -> apns "push delivery" {
+    technology "APNs HTTP/2"
+  }
+  velox.pushGateway -> fcm "push delivery" {
+    technology "FCM HTTP v1"
+  }
+  velox.pushGateway -> webPush "push delivery" {
+    technology "Web Push / VAPID"
+  }
+}

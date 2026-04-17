@@ -1,0 +1,17 @@
+// Focused view: Identity service with its direct neighbors only.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceIdentity of velox.identityService {
+    title "Services / Identity"
+    description "Identity is the auth gate and key vault. Issues JWTs; hands out passphrase-wrapped keys."
+    include *
+    include -> velox.identityService ->
+    autoLayout LeftRight 120 80
+  }
+}

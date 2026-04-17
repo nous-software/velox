@@ -1,0 +1,19 @@
+// Dynamic sequence view: user login + local key unlock.
+
+views {
+  dynamic view flowLogin {
+    title "Flows / Login & Key Unlock"
+    description "User authenticates, completes the KEK challenge, and unwraps their encryption key locally."
+    variant sequence
+
+    user -> velox.webUI "enter passphrase, username, OTP"
+    velox.webUI -> velox.identityService "request login challenge"
+    velox.webUI <- velox.identityService "challenge nonce"
+    velox.webUI -> velox.webUI "derive KEK from passphrase; sign challenge"
+    velox.webUI -> velox.identityService "submit password hash + OTP + signed challenge"
+    velox.identityService -> velox.identityPostgres "verify credentials + challenge signature"
+    velox.identityService -> velox.identityValkey "create auth session"
+    velox.webUI <- velox.identityService "JWT + passphrase-wrapped encryption key"
+    velox.webUI -> velox.webUI "unwrap encryption key with KEK"
+  }
+}

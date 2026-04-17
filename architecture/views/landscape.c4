@@ -1,0 +1,19 @@
+// System landscape (C4 Level 1): Velox as a single box + external actors and systems.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view index {
+    title "Landscape"
+    description "Top-level context: who uses Velox and which external systems it depends on."
+    include *
+    style user { color green }
+    style adminOperator { color indigo }
+    style velox { color primary }
+    autoLayout TopBottom 110 90
+  }
+}

@@ -1,0 +1,27 @@
+// External integrations: outbound hops to third-party services (push, IdP, object storage).
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view externalIntegrations of velox {
+    title "External / Integrations"
+    description "Outbound connections to third-party services (push, IdP, object storage)."
+    include
+      velox.identityService,
+      velox.pushGateway,
+      velox.webUI,
+      velox.desktopApp,
+      velox.mobileApp,
+      velox.adminAPI,
+      idp,
+      apns,
+      fcm,
+      webPush,
+      objectStorage
+    autoLayout LeftRight 100 70
+  }
+}

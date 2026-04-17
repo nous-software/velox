@@ -1,0 +1,17 @@
+// Focused view: Delivery service with its direct neighbors only.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceDelivery of velox.deliveryService {
+    title "Services / Delivery"
+    description "Delivery handles real-time WebTransport sessions and fans messages out via Kafka."
+    include *
+    include -> velox.deliveryService ->
+    autoLayout LeftRight 120 80
+  }
+}

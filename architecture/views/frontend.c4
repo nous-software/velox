@@ -1,0 +1,24 @@
+// Frontend surface: how the three client apps reach user-facing services.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view frontends of velox {
+    title "Frontend / User Surface"
+    description "How the client apps reach user-facing services (auth, chat mgmt, realtime, media)."
+    include
+      user,
+      velox.webUI,
+      velox.desktopApp,
+      velox.mobileApp,
+      velox.identityService,
+      velox.apiService,
+      velox.deliveryService,
+      objectStorage
+    autoLayout TopBottom 100 90
+  }
+}

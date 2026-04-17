@@ -1,0 +1,19 @@
+// Focused view: API service with its direct neighbors only.
+// Uses the `of <element>` scope + `include -> X ->` predicate to pull just
+// incoming and outgoing edges — keeps the diagram uncluttered.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceApi of velox.apiService {
+    title "Services / API"
+    description "The API service (MLS server) and the elements it interacts with directly."
+    include *
+    include -> velox.apiService ->
+    autoLayout LeftRight 120 80
+  }
+}

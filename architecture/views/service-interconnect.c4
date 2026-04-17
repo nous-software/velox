@@ -1,0 +1,18 @@
+// Focused view: Interconnect (federation bridge) with its direct neighbors only.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceInterconnect of velox.interconnectService {
+    title "Services / Interconnect"
+    description "Interconnect bridges Velox to peer instances. Federation + per-chat leader election."
+    include *
+    include -> velox.interconnectService ->
+    autoLayout LeftRight 120 80
+    style otherVelox { color green }
+  }
+}

@@ -1,0 +1,17 @@
+// Focused view: Push Gateway with its direct neighbors only.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view servicePush of velox.pushGateway {
+    title "Services / Push Gateway"
+    description "Push Gateway consumes the push-notifications topic and fans out to APNs / FCM / Web Push."
+    include *
+    include -> velox.pushGateway ->
+    autoLayout LeftRight 120 80
+  }
+}

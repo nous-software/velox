@@ -1,0 +1,17 @@
+// Focused view: Store service with its direct neighbors only.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceStore of velox.storeService {
+    title "Services / Store"
+    description "Store consumes the messages topic, persists ciphertext to Scylla, and serves history reads."
+    include *
+    include -> velox.storeService ->
+    autoLayout LeftRight 120 80
+  }
+}

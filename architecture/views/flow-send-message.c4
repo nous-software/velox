@@ -1,0 +1,26 @@
+// Dynamic sequence view: sending a message in a chat where all participants live on this instance.
+
+views {
+  dynamic view flowSendMessageLocal {
+    title "Flows / Send Message (Local Chat)"
+    description "User sends a message; all recipients are on this instance. Kafka fans out to Store, Delivery, and Push."
+    variant sequence
+
+    user -> velox.webUI "type and send"
+    velox.webUI -> velox.webUI "encrypt with MLS group state (local)"
+    velox.webUI -> velox.apiService "POST message + MLS commit"
+    velox.apiService -> velox.apiPostgres "persist MLS group state update"
+    velox.apiService -> velox.kafka "publish messages"
+    velox.apiService -> velox.kafka "publish push-notifications"
+    velox.webUI <- velox.apiService "ack"
+
+    velox.kafka -> velox.storeService "consume messages"
+    velox.storeService -> velox.scylla "persist ciphertext"
+
+    velox.kafka -> velox.deliveryService "consume messages"
+    velox.deliveryService -> velox.webUI "push via WebTransport (online recipient)"
+
+    velox.kafka -> velox.pushGateway "consume push-notifications"
+    velox.pushGateway -> apns "deliver to offline iOS recipients"
+  }
+}
