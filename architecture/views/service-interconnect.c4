@@ -9,7 +9,56 @@ views {
 
   view serviceInterconnect of velox.interconnectService {
     title "Services / Interconnect"
-    description "Interconnect bridges Velox to peer instances. Federation + per-chat leader election."
+    description '''
+      Outbound federation transport and per-chat hub coordinator. NARROWED scope
+      (prior revision also handled inbound federation and local KeyPackage serving —
+      both now belong to Federation Edge + Identity respectively).
+
+      Responsibilities:
+        - Consume `federation-egress` from Kafka; sign each payload with the instance
+          ed25519 private key; deliver over mTLS to the peer instance's Federation Edge.
+          This is the ONLY service that holds the private instance key.
+        - Make outbound MIMI calls on behalf of local services: remote KeyPackage fetch,
+          consent request, identifier query against a peer domain.
+        - Per-chat HUB coordination (lease + fencing token in Interconnect Valkey).
+          Non-hub instances forward incoming local client MLS ops to the peer hub via
+          gRPC; hub instances accept peer commits and republish to the local messages
+          topic.
+        - Peer discovery via DNS (SRV + .well-known).
+
+      ---
+
+      **Federation** — Matrix-style replication where a chat spans multiple Velox instances.
+      Each instance handles messages for its own members; Interconnect ships the cross-
+      instance legs.
+
+      **ed25519** — Edwards-curve digital signature scheme. Each instance has a signing key
+      published in `.well-known/velox/server`. Signatures are verified hop-independently —
+      TLS termination points cannot tamper with the payload. Complements mTLS for
+      MIMI-conformant peers.
+
+      **DNS SRV** — Discovery record (`_velox._tcp.<domain>`) pointing to a peer's endpoint.
+      Paired with `.well-known/velox/server` for the public URL and signing key. DNSSEC
+      recommended. Migrating to `.well-known/mimi-protocol-directory` as MIMI-conformant
+      peers appear (WIP).
+
+      **Hub coordination** — Per-chat coordination between home instances. The chat's hub
+      (MIMI terminology) drives MLS commits for that chat; non-hub instances forward ops
+      to the hub via gRPC. Hub defaults to the chat-creator's instance and changes only
+      via explicit hub-transfer state events (replaces the earlier dynamic "leader election").
+
+      **Fencing token** — Monotonically increasing integer issued with each lease. Prevents
+      a stale hub from writing after its lease expires — any write with an old token is rejected.
+
+      **federation-egress** — Kafka topic carrying outbound federation traffic (Commits,
+      Welcomes, consent requests, KeyPackage requests bound for peer instances). Inbound
+      federation is NOT on this topic; it arrives at Federation Edge and is republished
+      directly to the local `messages` topic.
+
+      **MIMI (WIP)** — draft-ietf-mimi-protocol. Interconnect's outbound endpoint paths
+      follow the MIMI HTTP endpoint conventions. Both the spec and Velox's conformance are
+      work-in-progress.
+    '''
     include *
     include -> velox.interconnectService ->
     autoLayout LeftRight 120 80

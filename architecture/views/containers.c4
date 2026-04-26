@@ -10,7 +10,49 @@ views {
 
   view containers of velox {
     title "Containers"
-    description "Containers inside Velox. External systems shown in dedicated views."
+    description '''
+      Containers inside Velox. External systems shown in dedicated views.
+
+      ---
+
+      **Delivery** — Realtime hub. Manages WebTransport sessions, epoch leases (Valkey CAS),
+      and Kafka fan-out. Stateless compute; no durable storage of its own.
+
+      **Federation Edge** — Stateless inbound federation gateway. Terminates mTLS from peer
+      instances, verifies the ed25519-signed envelope, and routes MIMI endpoint calls to
+      the internal service that owns each endpoint (Identity for /keyMaterial,
+      /identifierQuery, consent; Delivery for /update, /notify, /submitMessage; API for
+      /groupInfo, /reportAbuse). Holds no private keys and no state.
+      NOTE (WIP): routes follow draft-ietf-mimi-protocol, which is itself an IETF Internet-Draft.
+
+      **Interconnect** — Outbound federation transport + per-chat hub coordinator (narrowed
+      scope). Consumes `federation-egress` from Kafka, signs payloads with the instance
+      ed25519 key, and delivers to peer Federation Edges over mTLS. Holds the only copy
+      of the private instance key. Runs hub coordination (lease + fencing token in its own
+      Valkey) and forwards MLS ops to the peer hub when this instance is a non-hub participant.
+
+      **Store** — Sole persistent sink for chat data. Consumes Kafka `messages` topic and
+      writes MLS commits + ciphertext to Scylla. Serves paginated history reads.
+
+      **Scylla** — Wide-column datastore (Cassandra-compatible). Partitioned by
+      `(chat_id, epoch)`; append-only. The single canonical message store.
+
+      **Kafka** — Internal event bus. Topics: `messages`, `federation-egress`,
+      `user-state`, `push-notifications`, `admin-events`, `plugin-events`. Inbound
+      federation is verified by Federation Edge and republished directly to `messages` —
+      no separate ingress topic.
+
+      **Valkey** — Redis-compatible in-memory store. Each service owns a dedicated instance;
+      used for sessions, caches, rate limits, Delivery epoch lease CAS, and Interconnect
+      hub lease CAS.
+
+      **WASM** — Plugin format. Artifacts run sandboxed inside a wazero host in Go services;
+      hot-reloaded without restart via the Kafka `plugin-events` topic.
+
+      **MIMI (WIP)** — More Instant Messaging Interoperability, IETF WG draft
+      (draft-ietf-mimi-protocol). MLS-based federation protocol Velox targets for
+      cross-provider interop. Both the spec and Velox's conformance are work-in-progress.
+    '''
     include velox.*
     autoLayout TopBottom 110 90
   }

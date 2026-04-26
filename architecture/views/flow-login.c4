@@ -3,7 +3,30 @@
 views {
   dynamic view flowLogin {
     title "Flows / Login & Key Unlock"
-    description "User authenticates, completes the KEK challenge, and unwraps their encryption key locally."
+    description '''
+      User authenticates, completes the KEK challenge, and unwraps their encryption key locally.
+
+      ---
+
+      **Passphrase** — The user's primary secret. Never transmitted; used only client-side
+      to derive the KEK via a memory-hard KDF (e.g. Argon2).
+
+      **KEK (Key Encryption Key)** — Derived from the passphrase on the client. Used to sign
+      the challenge nonce and to unwrap the returned encryption key. Never leaves the client.
+
+      **Challenge nonce** — Random value issued by Identity at login start. The client signs
+      it with the KEK; Identity verifies the signature to confirm passphrase knowledge without
+      ever receiving or storing the KEK itself.
+
+      **Passphrase-wrapped key** — The real MLS encryption key, encrypted with the KEK and
+      stored server-side. Returned after a successful challenge; decrypted locally with the KEK.
+
+      **JWT (JSON Web Token)** — Signed bearer token issued by Identity after the challenge
+      succeeds. Presented to other services (API, Delivery) to prove authentication.
+
+      **OTP (One-Time Password)** — Optional TOTP second factor (RFC 6238). Verified by
+      Identity alongside the password hash as part of the same login round-trip.
+    '''
     variant sequence
 
     user -> velox.webUI "enter passphrase, username, OTP"

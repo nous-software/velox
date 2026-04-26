@@ -1,0 +1,108 @@
+// Dynamic sequence view: adding a member from another Velox instance to an existing federated chat.
+//
+// MIMI requires EXPLICIT RECIPIENT CONSENT before the peer instance will release the
+// remote user's KeyPackage. This flow assumes consent has ALREADY been granted (see
+// flow-federated-consent for that round-trip). If consent is missing, API must initiate
+// the consent flow first and return HTTP 202 Accepted to the client.
+//
+// Trust chain for a remote KeyPackage:
+//   1. mTLS to the peer's Federation Edge — MIMI-conformant channel auth
+//   2. ed25519 signature over the federation response — peer instance vouches for the KeyPackage
+//   3. KeyPackage self-signature — verified with the public key inside its own credential
+//
+// RFC 9420 requires TWO messages to be produced when adding a member:
+//   - a Commit (broadcast to existing members so they update their ratchet tree)
+//   - a Welcome (delivered DIRECTLY to the new joiner, carrying GroupInfo + ratchet tree
+//     so they can reconstruct their local group state at the new epoch)
+//
+// The client creating the Add constructs BOTH; Delivery ships the Commit through the
+// normal epoch-lease + messages path, and routes the Welcome separately to the new
+// member (local Delivery session or — for a remote joiner — via Interconnect).
+
+views {
+  dynamic view flowFederatedMemberAdd {
+    title "Flows / Add Member (Federated, post-consent)"
+    description '''
+      An existing chat member adds a user from another Velox instance. PRE-CONDITION:
+      recipient consent has already been recorded on the peer instance (see
+      flow-federated-consent). API verifies local consent cache, then fetches the remote
+      KeyPackage via Interconnect; the client constructs BOTH an MLS Commit (Add proposal,
+      broadcast to existing members) and a Welcome message (GroupInfo + ratchet tree,
+      delivered directly to the new member so they can initialise local state).
+
+      ---
+
+      **Consent precheck (WIP, MIMI)** — API asks local Identity whether the inviting user
+      has a usable consent token for the remote user/domain. If missing or expired, the
+      add-member call short-circuits into the consent flow and returns 202 Accepted.
+
+      **KeyPackage** — Pre-published signed bundle (RFC 9420) containing a new member's
+      credential + HPKE public key. Consumed once when adding the member; discarded after use.
+
+      **Credential** — Identity-specific assertion binding a user's identifier to their
+      MLS signing key. Stored at the member's leaf node in the ratchet tree after joining.
+
+      **Add proposal + Commit** — MLS operation that introduces a new leaf node into the
+      ratchet tree. Broadcast to existing members so they update their local state.
+
+      **Welcome message** — RFC 9420 §12.4. REQUIRED alongside the Commit when adding a
+      new member. Carries GroupInfo + ratchet tree so the new member can reconstruct the
+      group state at the new epoch. Delivered directly to the joiner — NOT broadcast to the group.
+
+      **Ratchet tree** — Chat-specific group state. After the Add Commit, existing members
+      update their local tree; the new member reconstructs theirs from the Welcome.
+
+      **Authentication Service (RFC 9420 §5.3.1)** — Whichever service vouches for a user's
+      credential. For a local user that is local Identity. For a remote user it is the
+      REMOTE instance's Identity — its authority is proxied through the ed25519 signature
+      attached to the federation response. No local Identity involvement for remote users.
+
+      **MIMI /keyMaterial (WIP)** — The remote KeyPackage fetch targets
+      `/keyMaterial/{targetUser}` on the peer's Federation Edge; the Edge checks consent
+      and routes the call to the peer's Identity.
+
+      **federation-egress** — Kafka topic carrying outbound federation traffic (Commits
+      destined for peers and Welcome messages destined for new joiners on peer instances).
+    '''
+    variant sequence
+
+    velox.webUI -> velox.apiService "POST /chats/{id}/members (remote user)"
+    velox.apiService -> velox.identityService "consent check: do we have a valid consent token for (inviter, remote user)?"
+    velox.identityService -> velox.identityPostgres "read consent record (MIMI — WIP)"
+    velox.apiService <- velox.identityService "consent OK (else short-circuit → consent flow)"
+    velox.apiService -> velox.interconnectService "fetch KeyPackage for remote user (MIMI /keyMaterial — WIP)"
+    velox.interconnectService -> dns "SRV + .well-known (peer Federation Edge; MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /keyMaterial/{user} (mTLS + ed25519-signed)"
+    velox.interconnectService <- otherVelox "ed25519-signed KeyPackage (credential + HPKE public key)"
+    velox.interconnectService -> velox.interconnectService "verify peer ed25519 signature + KeyPackage self-signature"
+    velox.apiService <- velox.interconnectService "verified KeyPackage"
+    velox.apiService -> velox.apiPostgres "record new membership"
+    velox.webUI <- velox.apiService "200 OK — KeyPackage ready"
+
+    // Client constructs the Commit (Add proposal) AND the Welcome message locally.
+    velox.webUI -[realtime]-> velox.deliveryService "request epoch lease (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: issue epoch N lease to client"
+    velox.webUI <- velox.deliveryService "epoch N lease granted"
+    velox.webUI -> velox.webUI "construct Add Commit + Welcome for new joiner (client-side)"
+    velox.webUI -[realtime]-> velox.deliveryService "submit { Add Commit, Welcome } (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: advance epoch N → N+1 (lease released)"
+    parallel {
+      velox.deliveryService -[async]-> velox.kafka "publish Commit → messages topic (fan-out to existing members)"
+      velox.deliveryService -[async]-> velox.kafka "publish Commit + Welcome → federation-egress (targeted at peer)"
+    }
+    velox.webUI <- velox.deliveryService "ACK (epoch N committed)"
+
+    // Local fan-out: Store persists the updated group state for existing members
+    velox.kafka -> velox.storeService "consume messages"
+    velox.storeService -> velox.scylla "persist Add Commit + updated ratchet tree snapshot"
+
+    // Federated fan-out: peer receives both the Commit (for existing peer members) and the
+    // Welcome (for the new joiner on that peer instance), terminated at the peer's Federation Edge.
+    velox.kafka -> velox.interconnectService "consume federation-egress"
+    velox.interconnectService -> dns "SRV + .well-known (MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /update + Welcome attachment — ed25519-signed (mTLS, MIMI — WIP)"
+    velox.interconnectService <- otherVelox "ACK — Edge verified, routed to peer Delivery; Welcome delivered to new joiner"
+  }
+}

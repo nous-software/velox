@@ -9,7 +9,53 @@ views {
 
   view serviceIdentity of velox.identityService {
     title "Services / Identity"
-    description "Identity is the auth gate and key vault. Issues JWTs; hands out passphrase-wrapped keys."
+    description '''
+      Auth gate, key vault, KeyPackage directory, and (via Federation Edge) the
+      federation-facing user directory. Verifies credentials, runs the KEK challenge,
+      issues JWTs, returns passphrase-wrapped encryption keys, publishes local users'
+      MLS KeyPackages to peer instances, and owns per-user consent for remote
+      first-contact.
+
+      Federation endpoints served through Federation Edge (WIP — draft-ietf-mimi-protocol):
+        - `/keyMaterial/{user}`       — local users' KeyPackages (single-use, pre-published)
+        - `/identifierQuery/{domain}` — user directory search (scoped by searchability policy)
+        - `/requestConsent`           — inbound consent request from a remote user
+        - `/updateConsent`            — inbound notification of a consent decision from a peer
+
+      ---
+
+      **KEK (Key Encryption Key)** — Derived client-side from the user's passphrase via a
+      memory-hard KDF (e.g. Argon2). The client signs a server-issued nonce with the KEK to
+      prove key ownership without ever transmitting the KEK itself.
+
+      **Passphrase-wrapped key** — The real MLS encryption key, encrypted with the KEK.
+      Stored server-side in Identity Postgres. Decrypted locally after a successful KEK challenge.
+
+      **Challenge nonce** — A random value issued by Identity at login start. The client
+      derives the KEK, signs the nonce, and returns the signature. Identity verifies the
+      signature to confirm the client knows the correct passphrase — without storing the KEK.
+
+      **JWT (JSON Web Token)** — Signed bearer token issued after successful authentication.
+      Services validate it independently without calling Identity on every request.
+
+      **OTP (One-Time Password)** — Optional second factor (e.g. TOTP via RFC 6238).
+      Verified by Identity alongside the password hash before issuing the JWT.
+
+      **OIDC (OpenID Connect)** — Optional external IdP path. Identity federates to the
+      external provider but still enforces a local KEK challenge before granting access.
+
+      **KeyPackage** — Pre-published signed bundle (RFC 9420) containing a user's client
+      credential + HPKE public key. Single-use; consumed when a user is added to an MLS group.
+
+      **AS (Authentication Service)** — RFC 9420 §5.3.1 concept. Identity is the AS for LOCAL
+      users; remote-user credentials are validated client-side by checking the peer instance's
+      ed25519 signature on the federation response plus the KeyPackage self-signature.
+
+      **Consent (WIP)** — MIMI requires explicit recipient consent before a peer can fetch
+      a user's KeyPackage. Identity stores the decision per (local-user, remote-domain-or-user)
+      and enforces it on every inbound `/keyMaterial` request. Tracks draft-ietf-mimi-protocol;
+      both the spec and the Velox implementation are work-in-progress.
+    '''
     include *
     include -> velox.identityService ->
     autoLayout LeftRight 120 80

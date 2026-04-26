@@ -9,7 +9,27 @@ views {
 
   view frontends of velox {
     title "Frontend / User Surface"
-    description "How the client apps reach user-facing services (auth, chat mgmt, realtime, media)."
+    description '''
+      How the client apps reach user-facing services (auth, chat mgmt, realtime, media).
+
+      ---
+
+      **WebTransport** — Bidirectional QUIC-based protocol. Clients both send MLS commits
+      and receive pushed messages through a single persistent connection to Delivery.
+
+      **MLS (Messaging Layer Security)** — RFC 9420. All encryption and decryption happens
+      client-side. The server forwards ciphertext only; no plaintext ever leaves the client.
+
+      **KEK (Key Encryption Key)** — Derived from the user's passphrase on the client.
+      Used to unwrap the real encryption key returned by Identity after login. Never sent to the server.
+
+      **E2EE (End-to-End Encryption)** — Private key material never leaves the client.
+      The Web / Desktop / Mobile apps each independently derive the KEK and unwrap keys locally.
+
+      **Pre-signed URL** — Short-lived URL issued by object storage that authorises a single
+      upload or download. Clients upload encrypted media directly to S3-compatible storage
+      without routing binary data through any Velox backend service.
+    '''
     include
       user,
       velox.webUI,

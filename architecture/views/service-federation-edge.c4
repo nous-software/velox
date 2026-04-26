@@ -1,0 +1,61 @@
+// Focused view: Federation Edge — inbound federation gateway.
+
+views {
+  style element.tag = #frontend   { color blue }
+  style element.tag = #backend    { color sky }
+  style element.tag = #data       { color secondary }
+  style element.tag = #adminPlane { color indigo }
+  style element.tag = #federation { color green }
+
+  view serviceFederationEdge of velox.federationEdge {
+    title "Services / Federation Edge"
+    description '''
+      Stateless inbound federation gateway. Terminates mutual TLS from peer instances,
+      verifies the ed25519-signed envelope on every request, and routes the call to the
+      internal service that owns the targeted MIMI endpoint. Holds no private keys, no
+      durable storage, and no session state.
+
+      Routing table (WIP — tracks draft-ietf-mimi-protocol):
+
+      | Endpoint                                      | Routed to     | Notes |
+      |-----------------------------------------------|---------------|-------|
+      | `/keyMaterial/{user}`                         | Identity      | Subject to consent check |
+      | `/identifierQuery/{domain}`                   | Identity      | Scoped by searchability policy |
+      | `/requestConsent/{targetDomain}`              | Identity      | Records inbound consent request |
+      | `/updateConsent/{requesterDomain}`            | Identity      | Records a consent decision |
+      | `/update/{roomId}`                            | Delivery      | MLS commit / proposal ingest |
+      | `/submitMessage/{roomId}`                     | Delivery      | Encrypted application message |
+      | `/notify/{roomId}`                            | Delivery      | Inbound fanout from peer hub |
+      | `/groupInfo/{roomId}`                         | API           | GroupInfo for external joins |
+      | `/reportAbuse/{roomId}`                       | API           | Abuse report with franked message |
+      | hub-coordination forward (peer assumed us hub)| Interconnect  | Handoff when role changed |
+
+      After authenticating the call and routing to the owning service, verified Commits
+      are republished directly to the local `messages` Kafka topic — there is no
+      separate ingress topic.
+
+      ---
+
+      **mTLS (mutual TLS)** — MIMI-conformant channel authentication: both client and server
+      certificates are validated per federated domain. Velox additionally requires the request
+      body to carry an ed25519 signature over canonicalised content for hop-independent
+      integrity even when a peer operator terminates TLS at a load balancer.
+
+      **Routing-only** — Federation Edge is intentionally dumb. It does not implement MIMI
+      semantics, does not touch Scylla, does not hold the ed25519 private key. Each internal
+      service remains the authoritative owner of its endpoints.
+
+      **Stateless** — Edge pods can be scaled horizontally behind an L4/L7 load balancer with
+      no session affinity. Retries and idempotency are delegated to the owning service.
+
+      **MIMI (WIP)** — draft-ietf-mimi-protocol. Endpoint names and wire formats (TLS
+      presentation language) are not yet RFC-stable; the edge is expected to evolve.
+      Until MIMI stabilises, Edge also accepts the legacy Velox-native federation envelope
+      for backward compatibility with peers that have not adopted MIMI.
+    '''
+    include *
+    include -> velox.federationEdge ->
+    autoLayout LeftRight 120 80
+    style otherVelox { color green }
+  }
+}

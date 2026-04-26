@@ -9,7 +9,31 @@ views {
 
   view adminPlaneView of velox {
     title "Admin / Admin Plane"
-    description "Operator console, Admin API, plugin registry, runtime config, audit."
+    description '''
+      Operator console, Admin API, plugin registry, runtime config, audit.
+      Deployed separately from the user-facing services.
+
+      ---
+
+      **WASM (WebAssembly)** — Plugin format. Operators upload `.wasm` artifacts through
+      the Admin UI; the Admin API stores them in object storage and records metadata in Postgres.
+
+      **wazero** — Pure-Go WebAssembly runtime (no CGo). Hosts WASM plugins inside Velox
+      Go services for sandboxed, language-agnostic plugin execution.
+
+      **Hot-reload** — After a plugin is registered, the Admin API publishes to the Kafka
+      `plugin-events` topic. All WASM-capable services fetch and load the new artifact without
+      requiring a restart.
+
+      **Feature flag** — Runtime toggle stored in Admin Postgres. Services read flags via
+      the Admin API; changes are propagated via the `admin-events` Kafka topic.
+
+      **RBAC (Role-Based Access Control)** — Access control model enforced by Admin API.
+      Operators are granted roles that define which admin actions they may perform.
+
+      **Audit log** — Append-only record of all operator actions. Written to Admin Postgres
+      by the Admin API on every mutating operation.
+    '''
     include
       adminOperator,
       velox.adminUI,

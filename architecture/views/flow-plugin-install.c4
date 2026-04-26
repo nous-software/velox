@@ -1,0 +1,57 @@
+// Dynamic sequence view: admin uploads a WASM plugin; running services hot-load it.
+//
+// Plugin storage:  WASM artifact → objectStorage (S3-compatible)
+// Plugin registry: metadata + version → adminPostgres
+// Hot-reload:      adminAPI publishes plugin-events → Kafka → services fetch + load via wazero
+
+views {
+  dynamic view flowPluginInstall {
+    title "Flows / Plugin Install"
+    description '''
+      Admin uploads a plugin through the Admin UI.
+      The WASM artifact is stored in object storage; a registry row is written to Admin Postgres.
+      A Kafka event triggers all WASM-capable services to hot-reload without restart.
+
+      ---
+
+      **WASM (WebAssembly)** — Binary instruction format for sandboxed execution. Plugins ship
+      as `.wasm` artifacts that run inside Go services without access to host memory or syscalls
+      beyond the explicitly provided host ABI.
+
+      **wazero** — Pure-Go WebAssembly runtime (no CGo). Hosts WASM plugins inside Velox
+      services. Each plugin runs in an isolated wazero module with scoped capabilities.
+
+      **Hot-reload** — Services subscribe to the Kafka `plugin-events` topic. On a new event
+      they fetch the artifact from object storage and swap in the new wazero module without
+      restarting the process; in-flight requests finish against the old module.
+
+      **sha256 checksum** — Stored alongside the plugin registry row. Services verify the
+      downloaded artifact against the checksum before loading, preventing tampered artifacts.
+
+      **plugin-events** — Kafka topic published by Admin API after a successful plugin
+      registration. Carries the plugin ID, version, and sha256 so consumers know what to fetch.
+    '''
+    variant sequence
+
+    adminOperator -> velox.adminUI "upload plugin.wasm + metadata"
+    velox.adminUI -> velox.adminAPI "POST /plugins"
+    parallel {
+      velox.adminAPI -> objectStorage "store WASM artifact"
+      velox.adminAPI -> velox.adminPostgres "insert registry row (id, version, sha256)"
+    }
+    velox.adminAPI -> velox.kafka "publish → plugin-events topic"
+    velox.adminUI <- velox.adminAPI "201 Created (plugin registered)"
+
+    // All WASM-capable services react to the event independently
+    parallel {
+      velox.kafka -> velox.apiService "consume plugin-events"
+      velox.kafka -> velox.deliveryService "consume plugin-events"
+    }
+
+    velox.apiService -> objectStorage "fetch WASM artifact by version"
+    velox.apiService -> velox.apiService "hot-load into wazero host (sandboxed)"
+
+    velox.deliveryService -> objectStorage "fetch WASM artifact by version"
+    velox.deliveryService -> velox.deliveryService "hot-load into wazero host (sandboxed)"
+  }
+}
