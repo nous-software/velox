@@ -1,0 +1,42 @@
+// Dynamic sequence view: MIMI consent round-trip before first contact with a remote user.
+// STATUS: WIP — tracks draft-ietf-mimi-protocol's /requestConsent + /updateConsent endpoints.
+
+views {
+  dynamic view flowFederatedConsent {
+    title "Flows / Federated Consent (MIMI, WIP)"
+    description "First-contact consent round-trip required before a remote KeyPackage can be fetched. Alice's add-member attempt returns 202 while Interconnect requests consent from the peer; the peer calls back via Federation Edge once Bob decides."
+    variant sequence
+
+    // Alice initiates: "add Bob to chat" hits a consent wall because we have no token.
+    velox.webUI -> velox.apiService "POST /chats/{id}/members (remote user bob@otherVelox)"
+    velox.apiService -> velox.identityService "consent check for (alice, bob@otherVelox)"
+    velox.identityService -> velox.identityPostgres "lookup consent token"
+    velox.apiService <- velox.identityService "no token — initiate consent request"
+    velox.webUI <- velox.apiService "202 Accepted — consent pending"
+
+    // Velox asks otherVelox for consent on Bob's behalf.
+    velox.apiService -> velox.interconnectService "POST /requestConsent/{otherVelox} (MIMI — WIP)"
+    velox.interconnectService -> dns "SRV + .well-known (MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /requestConsent — mTLS + ed25519-signed"
+    velox.interconnectService <- otherVelox "202 Accepted — request queued for Bob"
+
+    // Peer surfaces the request to Bob; Bob decides. (Opaque from here.)
+    velox.interconnectService -> velox.interconnectService "wait for peer-initiated /updateConsent callback"
+
+    // Peer calls us back via our Federation Edge with Bob's decision.
+    otherVelox -> velox.federationEdge "POST /updateConsent/{velox} (bob granted, consent token) — mTLS + ed25519"
+    velox.federationEdge -> velox.federationEdge "verify peer ed25519 signature"
+    velox.federationEdge -> velox.identityService "route /updateConsent → Identity (MIMI — WIP)"
+    velox.identityService -> velox.identityPostgres "store consent token for (alice, bob@otherVelox)"
+    velox.federationEdge <- velox.identityService "OK"
+    otherVelox <- velox.federationEdge "200 OK (ed25519-signed ACK)"
+
+    // Now the original add-member flow can proceed automatically.
+    // Consent decision fans out via Kafka so the async pattern matches the rest of the architecture.
+    velox.identityService -[async]-> velox.kafka "produce consent-events: {requester, target, decision}"
+    velox.kafka -[async]-> velox.apiService "consume consent-events — resume pending add-member"
+    velox.apiService -[async]-> velox.deliveryService "fan-out consent-granted state change to subscribers"
+    velox.webUI <- velox.deliveryService "WebTransport: consent granted — add-member can now proceed"
+  }
+}

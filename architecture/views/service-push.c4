@@ -1,0 +1,11 @@
+// Focused view: Push Gateway with its direct neighbors only.
+
+views {
+  view servicePush of velox.pushGateway {
+    title "Services / Push Gateway"
+    description "Consumes the Kafka push-notifications topic and dispatches silent wakeup pushes to APNs (iOS/macOS), FCM (Android/web), and Web Push (VAPID). Isolated from Delivery to ring-fence third-party vendor dependencies."
+    global style veloxColors
+    include -> velox.pushGateway ->
+    autoLayout LeftRight 120 80
+  }
+}

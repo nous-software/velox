@@ -1,0 +1,12 @@
+// Container view (C4 Level 2): all containers inside Velox.
+// External systems intentionally excluded — they have their own focused views.
+
+views {
+  view containers of velox {
+    title "Containers"
+    description "All containers inside Velox. External systems shown in dedicated views."
+    global style veloxColors
+    include velox.*
+    autoLayout TopBottom 110 90
+  }
+}

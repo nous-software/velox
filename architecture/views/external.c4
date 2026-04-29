@@ -1,0 +1,22 @@
+// External integrations: outbound hops to third-party services (push, IdP, object storage).
+
+views {
+  view externalIntegrations of velox {
+    title "External / Integrations"
+    description "Outbound connections to third-party services: push notifications (APNs, FCM, Web Push), external IdP (OIDC), and S3-compatible object storage."
+    global style veloxColors
+    include
+      velox.identityService,
+      velox.pushGateway,
+      velox.webUI,
+      velox.desktopApp,
+      velox.mobileApp,
+      velox.adminAPI,
+      idp,
+      apns,
+      fcm,
+      webPush,
+      objectStorage
+    autoLayout LeftRight 100 70
+  }
+}

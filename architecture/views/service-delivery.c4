@@ -1,0 +1,11 @@
+// Focused view: Delivery service with its direct neighbors only.
+
+views {
+  view serviceDelivery of velox.deliveryService {
+    title "Services / Delivery"
+    description "Realtime hub over bidirectional WebTransport. Sequences MLS commits via Valkey epoch leases (CAS), then publishes to Kafka for fan-out to Store, other Delivery pods, Push Gateway, and federation egress. Never sees plaintext."
+    global style veloxColors
+    include -> velox.deliveryService ->
+    autoLayout LeftRight 120 80
+  }
+}

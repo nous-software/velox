@@ -1,0 +1,49 @@
+// Dynamic sequence view: adding a member from another Velox instance to an existing federated chat.
+// PRE-CONDITION: recipient consent has already been recorded on the peer (see flow-federated-consent).
+// RFC 9420 requires BOTH a Commit (for existing members) and a Welcome (for the new joiner).
+
+views {
+  dynamic view flowFederatedMemberAdd {
+    title "Flows / Add Member (Federated, post-consent)"
+    description "Adding a remote user once consent is on file. API verifies consent, fetches the remote KeyPackage via Interconnect, and the client constructs both an Add Commit (broadcast to existing members) and a Welcome (delivered to the new joiner via federation-egress)."
+    variant sequence
+
+    velox.webUI -> velox.apiService "POST /chats/{id}/members (remote user)"
+    velox.apiService -> velox.identityService "consent check: do we have a valid consent token for (inviter, remote user)?"
+    velox.identityService -> velox.identityPostgres "read consent record (MIMI — WIP)"
+    velox.apiService <- velox.identityService "consent OK (else short-circuit → consent flow)"
+    velox.apiService -> velox.interconnectService "fetch KeyPackage for remote user (MIMI /keyMaterial — WIP)"
+    velox.interconnectService -> dns "SRV + .well-known (peer Federation Edge; MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /keyMaterial/{user} (mTLS + ed25519-signed)"
+    velox.interconnectService <- otherVelox "ed25519-signed KeyPackage (credential + HPKE public key)"
+    velox.interconnectService -> velox.interconnectService "verify peer ed25519 signature + KeyPackage self-signature"
+    velox.apiService <- velox.interconnectService "verified KeyPackage"
+    velox.apiService -> velox.apiPostgres "record new membership"
+    velox.webUI <- velox.apiService "200 OK — KeyPackage ready"
+
+    // Client constructs the Commit (Add proposal) AND the Welcome message locally.
+    velox.webUI -[realtime]-> velox.deliveryService "request epoch lease (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: issue epoch N lease to client"
+    velox.webUI <- velox.deliveryService "epoch N lease granted"
+    velox.webUI -> velox.webUI "construct Add Commit + Welcome for new joiner (client-side)"
+    velox.webUI -[realtime]-> velox.deliveryService "submit { Add Commit, Welcome } (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: advance epoch N → N+1 (lease released)"
+    parallel {
+      velox.deliveryService -[async]-> velox.kafka "publish Commit → messages topic (fan-out to existing members)"
+      velox.deliveryService -[async]-> velox.kafka "publish Commit + Welcome → federation-egress (targeted at peer)"
+    }
+    velox.webUI <- velox.deliveryService "ACK (epoch N committed)"
+
+    // Local fan-out: Store persists the updated group state for existing members
+    velox.kafka -> velox.storeService "consume messages"
+    velox.storeService -> velox.scylla "persist Add Commit + updated ratchet tree snapshot"
+
+    // Federated fan-out: peer receives both the Commit and the Welcome.
+    velox.kafka -> velox.interconnectService "consume federation-egress"
+    velox.interconnectService -> dns "SRV + .well-known (MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /update + Welcome attachment — ed25519-signed (mTLS, MIMI — WIP)"
+    velox.interconnectService <- otherVelox "ACK — Edge verified, routed to peer Delivery; Welcome delivered to new joiner"
+  }
+}

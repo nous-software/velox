@@ -1,0 +1,35 @@
+// Dynamic sequence view: fanning out a message to a participant on another Velox instance.
+// Assumes an established federated group AND that this instance is the chat hub.
+
+views {
+  dynamic view flowFederatedMessage {
+    title "Flows / Send Message (Federated)"
+    description "Outbound leg when a chat has remote participants and this instance is the hub. Local fan-out runs as in the local-chat flow; additionally Interconnect signs and POSTs to the peer's Federation Edge over mTLS."
+    variant sequence
+
+    velox.webUI -[realtime]-> velox.deliveryService "request epoch lease (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: issue epoch N lease to client"
+    velox.webUI <- velox.deliveryService "epoch N lease granted"
+    velox.webUI -> velox.webUI "construct MLS Commit for epoch N (client-side)"
+    velox.webUI -[realtime]-> velox.deliveryService "submit commit + ciphertext (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: advance epoch N → N+1 (lease released)"
+    parallel {
+      velox.deliveryService -[async]-> velox.kafka "publish → messages topic (local fan-out)"
+      velox.deliveryService -[async]-> velox.kafka "publish → federation-egress topic"
+    }
+    velox.webUI <- velox.deliveryService "ACK (epoch N committed)"
+
+    // Local fan-out (same as local-chat flow)
+    velox.kafka -> velox.storeService "consume messages"
+    velox.storeService -> velox.scylla "persist MLS commit + ciphertext"
+    velox.kafka -> velox.deliveryService "consume messages"
+    velox.deliveryService -[realtime]-> velox.webUI "push to local online recipients"
+
+    // Federated leg — no Identity call needed; ratchet tree on both sides already has credentials
+    velox.kafka -> velox.interconnectService "consume federation-egress"
+    velox.interconnectService -> dns "SRV lookup + .well-known (MIMI directory path — WIP)"
+    velox.interconnectService <- dns "peer Federation Edge endpoint + ed25519 signing key"
+    velox.interconnectService -> otherVelox "POST /notify/{roomId} — ed25519-signed MLS commit (mTLS, MIMI — WIP)"
+    velox.interconnectService <- otherVelox "ACK (peer Edge verified signature and routed to peer Delivery)"
+  }
+}

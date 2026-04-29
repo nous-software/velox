@@ -1,0 +1,365 @@
+// Velox architecture — model.
+// Actors, external systems, the Velox system + its containers, and all relationships.
+// Architectural rationale, design decisions, and glossary live in README.md.
+
+model {
+  // -------- External actors --------
+  user = actor "User" {
+    description "A person using Velox to chat. Pseudonymous by default."
+  }
+
+  adminOperator = actor "Admin / Operator" {
+    description "Operates a Velox instance. Audits state, manages plugins, toggles features, configures IdPs."
+  }
+
+  // -------- External systems --------
+  otherVelox = externalSystem "Other Velox Instance" {
+    #federation
+    description "A federated peer Velox deployment. mTLS + ed25519-signed MIMI payloads (WIP)."
+  }
+
+  idp = externalSystem "External IdP" {
+    description "OIDC provider. Opt-in convenience path."
+  }
+
+  apns = externalSystem "Apple Push Notification Service" {
+    description "iOS / macOS push delivery."
+  }
+
+  fcm = externalSystem "Firebase Cloud Messaging" {
+    description "Android + web push delivery."
+  }
+
+  webPush = externalSystem "Web Push Service" {
+    description "Browser push via VAPID."
+  }
+
+  dns = externalSystem "DNS" {
+    description "Federation discovery: SRV + .well-known/velox/server."
+  }
+
+  objectStorage = externalSystem "S3-Compatible Object Storage" {
+    description "Encrypted media blobs and plugin WASM artifacts."
+  }
+
+  // -------- The Velox system --------
+  velox = system "Velox" {
+    description "Federated, E2E-encrypted chat. MLS over WebTransport; Kafka event bus."
+
+    // ---- Frontends ----
+    webUI = webapp "Web UI" {
+      #frontend
+      technology "React, Next.js"
+      icon tech:react
+      description "Browser client. Derives KEK, runs MLS client. Plaintext never leaves the device."
+    }
+
+    desktopApp = nativeApp "Desktop App" {
+      #frontend
+      technology "Tauri / native"
+      description "Native desktop client (Linux / macOS / Windows). Same MLS + key handling as Web UI."
+    }
+
+    mobileApp = nativeApp "Mobile App" {
+      #frontend
+      technology "React Native / native"
+      description "iOS / Android client. Registers APNs/FCM device tokens via Identity."
+    }
+
+    // ---- Admin plane (separate deployment) ----
+    adminUI = webapp "Admin UI" {
+      #adminPlane
+      technology "React, Next.js"
+      icon tech:react
+      description "Operator console. Separate deployment from the user-facing web app."
+    }
+
+    adminAPI = service "Admin API" {
+      #adminPlane
+      technology "Go"
+      description "Backend for the Admin UI. Centralises RBAC, audit logging, feature flags, plugin registry."
+    }
+
+    // ---- Core backend services ----
+    apiService = service "API" {
+      #backend
+      technology "Go"
+      description "Management-only: chat + membership CRUD; delegates history reads to Store. Hosts WASM plugin points."
+    }
+
+    deliveryService = service "Delivery" {
+      #backend
+      technology "Go, WebTransport"
+      description "Realtime hub over bidirectional WebTransport. Validates the per-chat epoch lease (Valkey CAS) and forwards MLS commits to Kafka. Never sees plaintext."
+    }
+
+    storeService = service "Store" {
+      #backend
+      technology "Go"
+      description "Sole persistent sink. Consumes the messages topic and persists MLS commits + ciphertext to Scylla. Serves paginated history reads."
+    }
+
+    identityService = service "Identity" {
+      #backend
+      technology "Go"
+      description "Auth gate, key vault, KeyPackage directory, federation user directory. Issues JWTs after KEK challenge. MLS Authentication Service for local users. Owns consent records (MIMI — WIP)."
+      metadata {
+        kek-challenge-TODO "HMAC (symmetric, server holds verifier → offline brute-force risk on DB compromise) vs. asymmetric signing (KEK derives keypair, public key registered → server cannot brute-force from DB). Decision required before security review."
+      }
+    }
+
+    federationEdge = service "Federation Edge" {
+      #federation
+      technology "Go"
+      description "Stateless inbound federation gateway. Terminates mTLS, verifies ed25519 envelope, routes MIMI endpoints to internal services. Holds no private keys, no state. (WIP — endpoints track draft-ietf-mimi-protocol.)"
+    }
+
+    interconnectService = service "Interconnect" {
+      #federation
+      technology "Go"
+      description "Outbound federation transport + per-chat hub coordinator. Sole holder of the instance ed25519 private key. Owns hub lease + fencing token in its Valkey."
+    }
+
+    pushGateway = service "Push Gateway" {
+      #backend
+      technology "Go"
+      description "Consumes push-notifications and dispatches to APNs / FCM / Web Push. Isolated from Delivery."
+    }
+
+    // ---- Data plane ----
+    apiPostgres = datastore "API Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Chat metadata + membership only. (MLS state lives in Scylla.)"
+    }
+
+    identityPostgres = datastore "Identity Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Identities, password hashes, OTP secrets, challenges, passphrase-wrapped keys, KeyPackages, device push tokens, consent records."
+    }
+
+    adminPostgres = datastore "Admin Postgres" {
+      #data
+      technology "PostgreSQL"
+      icon tech:postgresql
+      description "Runtime config, feature flags, plugin registry, audit log."
+    }
+
+    apiValkey = datastore "API Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Query cache, sessions, API rate-limit counters."
+    }
+
+    identityValkey = datastore "Identity Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Auth session state, OTP verification state, login rate limits."
+    }
+
+    deliveryValkey = datastore "Delivery Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Per-chat epoch lease (CAS), ratchet tree hot cache, ephemeral user-state, per-connection rate limits."
+    }
+
+    interconnectValkey = datastore "Interconnect Valkey" {
+      #data
+      technology "Valkey"
+      icon tech:redis
+      description "Per-chat hub lease + fencing token (CAS), outbound federation retry state."
+    }
+
+    scylla = datastore "Scylla" {
+      #data
+      technology "ScyllaDB / Cassandra"
+      icon tech:cassandra
+      description "Single canonical store for all chat data. Partitioned by (chat_id, epoch); append-only. Store is the only reader/writer."
+    }
+
+    kafka = broker "Kafka" {
+      #data
+      technology "Apache Kafka"
+      icon tech:kafka
+      description "Central event bus. Topics: messages, federation-egress, user-state, push-notifications, admin-events, plugin-events."
+    }
+
+    // ---- Relationships: frontend -> backend ----
+    webUI -> identityService "login + KEK challenge, JWT issuance" {
+      technology "HTTPS"
+    }
+    webUI -> apiService "chat + membership mgmt, history read" {
+      technology "HTTPS"
+    }
+    webUI -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
+      technology "WebTransport / QUIC (bidirectional)"
+    }
+
+    desktopApp -> identityService "login + KEK challenge" {
+      technology "HTTPS"
+    }
+    desktopApp -> apiService "chat + membership mgmt, history read" {
+      technology "HTTPS"
+    }
+    desktopApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
+      technology "WebTransport / QUIC (bidirectional)"
+    }
+
+    mobileApp -> identityService "login + KEK challenge, registers push token" {
+      technology "HTTPS"
+    }
+    mobileApp -> apiService "chat + membership mgmt, history read" {
+      technology "HTTPS"
+    }
+    mobileApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
+      technology "WebTransport / QUIC (bidirectional)"
+    }
+
+    // ---- Admin plane ----
+    adminUI -> adminAPI "operator actions" {
+      technology "HTTPS"
+    }
+    adminAPI -> adminPostgres "config, flags, plugin registry, audit log" {
+      technology "SQL"
+    }
+    adminAPI -[async]-> kafka "publishes admin-events, plugin-events" {
+      technology "Kafka producer"
+    }
+
+    // ---- Core backend <-> data ----
+    apiService -> apiPostgres "chat, membership" {
+      technology "SQL"
+    }
+    apiService -> apiValkey "query cache, sessions, rate limits" {
+      technology "RESP"
+    }
+    apiService -> storeService "history read on behalf of clients" {
+      technology "gRPC"
+    }
+    apiService -> identityService "membership checks; fetch local KeyPackages; consent check" {
+      technology "gRPC"
+    }
+    apiService -> interconnectService "outbound MIMI: consent + remote KeyPackage fetch (WIP)" {
+      technology "gRPC"
+    }
+    apiService -[async]-> kafka "consumes plugin-events, consent-events" {
+      technology "Kafka consumer"
+    }
+
+    deliveryService -[async]-> kafka "produces: messages, federation-egress, push-notifications, user-state" {
+      technology "Kafka producer"
+    }
+    deliveryService -[async]-> kafka "consumes: messages, user-state" {
+      technology "Kafka consumer"
+    }
+    deliveryService -> deliveryValkey "epoch leases (CAS), user-state, rate limits, ratchet tree cache" {
+      technology "RESP"
+    }
+
+    storeService -[async]-> kafka "consumes messages" {
+      technology "Kafka consumer"
+    }
+    storeService -> scylla "persist ciphertext; paginated reads" {
+      technology "CQL"
+    }
+
+    identityService -> identityPostgres "identity, wrapped keys, challenges, OTP, consent" {
+      technology "SQL"
+    }
+    identityService -> identityValkey "auth session + OTP state" {
+      technology "RESP"
+    }
+    identityService -[async]-> kafka "produces consent-events" {
+      technology "Kafka producer"
+    }
+
+    interconnectService -[async]-> kafka "consumes federation-egress (outbound only)" {
+      technology "Kafka"
+    }
+    interconnectService -> deliveryService "forward MLS ops when this instance is chat hub" {
+      technology "gRPC"
+    }
+    interconnectService -> interconnectValkey "hub lease + fencing token (CAS), outbound retry state" {
+      technology "RESP"
+    }
+
+    // ---- Federation Edge: inbound MIMI termination + routing ----
+    // Edge holds no state and no private keys; it is a thin router.
+    // Verified inbound commits flow Edge → Delivery → Kafka (messages topic) — Delivery is the sole producer.
+    federationEdge -> identityService "MIMI: /keyMaterial, /identifierQuery, /requestConsent, /updateConsent (WIP)" {
+      technology "gRPC"
+    }
+    federationEdge -> deliveryService "MIMI: /update, /notify, /submitMessage (hot path, WIP)" {
+      technology "gRPC"
+    }
+    federationEdge -> apiService "MIMI: /groupInfo, /reportAbuse (WIP)" {
+      technology "gRPC"
+    }
+    federationEdge -> interconnectService "hub-coordination forward when this instance is non-hub" {
+      technology "gRPC"
+    }
+
+    pushGateway -[async]-> kafka "consumes push-notifications" {
+      technology "Kafka consumer"
+    }
+    pushGateway -> identityService "look up device push tokens by user / device ID" {
+      technology "gRPC"
+    }
+  }
+
+  // -------- Cross-boundary relationships --------
+  user -> velox.webUI "chats via browser"
+  user -> velox.desktopApp "chats via desktop"
+  user -> velox.mobileApp "chats via mobile"
+  adminOperator -> velox.adminUI "operates the instance"
+
+  velox.webUI -> objectStorage "encrypted media upload/download" {
+    technology "HTTPS, pre-signed URLs"
+  }
+  velox.desktopApp -> objectStorage "encrypted media" {
+    technology "HTTPS"
+  }
+  velox.mobileApp -> objectStorage "encrypted media" {
+    technology "HTTPS"
+  }
+
+  velox.adminAPI -> objectStorage "store/fetch plugin WASM artifacts" {
+    technology "HTTPS"
+  }
+  velox.apiService -> objectStorage "download plugin WASM bundles" {
+    technology "HTTPS, pre-signed URLs"
+  }
+  velox.deliveryService -> objectStorage "download plugin WASM bundles" {
+    technology "HTTPS, pre-signed URLs"
+  }
+
+  velox.identityService -> idp "OIDC login (optional)" {
+    technology "OIDC"
+  }
+
+  velox.interconnectService -[federation]-> otherVelox "outbound: signed MIMI calls (Commits, Welcomes, KeyPackage + consent requests, hub-coordination)" {
+    technology "mTLS + ed25519-signed payloads (WIP: draft-ietf-mimi-protocol)"
+  }
+  otherVelox -[federation]-> velox.federationEdge "inbound MIMI (terminated at Edge, ed25519 verified, routed per endpoint)" {
+    technology "mTLS + ed25519-signed payloads (WIP: draft-ietf-mimi-protocol)"
+  }
+  velox.interconnectService -> dns "peer discovery (SRV + .well-known)" {
+    technology "DNS + HTTPS"
+  }
+
+  velox.pushGateway -> apns "push delivery" {
+    technology "APNs HTTP/2"
+  }
+  velox.pushGateway -> fcm "push delivery" {
+    technology "FCM HTTP v1"
+  }
+  velox.pushGateway -> webPush "push delivery" {
+    technology "Web Push / VAPID"
+  }
+}

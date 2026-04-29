@@ -1,0 +1,30 @@
+// Dynamic sequence view: admin uploads a WASM plugin; running services hot-load it.
+
+views {
+  dynamic view flowPluginInstall {
+    title "Flows / Plugin Install"
+    description "Operator uploads a plugin via Admin UI; the WASM artifact lands in object storage, a registry row (id, version, sha256) goes to Admin Postgres, and a plugin-events Kafka message triggers all WASM-capable services to hot-reload via wazero."
+    variant sequence
+
+    adminOperator -> velox.adminUI "upload plugin.wasm + metadata"
+    velox.adminUI -> velox.adminAPI "POST /plugins"
+    parallel {
+      velox.adminAPI -> objectStorage "store WASM artifact"
+      velox.adminAPI -> velox.adminPostgres "insert registry row (id, version, sha256)"
+    }
+    velox.adminAPI -> velox.kafka "publish → plugin-events topic"
+    velox.adminUI <- velox.adminAPI "201 Created (plugin registered)"
+
+    // All WASM-capable services react to the event independently
+    parallel {
+      velox.kafka -> velox.apiService "consume plugin-events"
+      velox.kafka -> velox.deliveryService "consume plugin-events"
+    }
+
+    velox.apiService -> objectStorage "fetch WASM artifact by version"
+    velox.apiService -> velox.apiService "hot-load into wazero host (sandboxed)"
+
+    velox.deliveryService -> objectStorage "fetch WASM artifact by version"
+    velox.deliveryService -> velox.deliveryService "hot-load into wazero host (sandboxed)"
+  }
+}

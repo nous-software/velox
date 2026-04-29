@@ -1,0 +1,11 @@
+// Focused view: Identity service with its direct neighbors only.
+
+views {
+  view serviceIdentity of velox.identityService {
+    title "Services / Identity"
+    description "Auth gate, key vault, KeyPackage directory, and federation user directory. Issues JWTs after KEK challenge; owns consent records (MIMI — WIP). Acts as MLS Authentication Service for local users."
+    global style veloxColors
+    include -> velox.identityService ->
+    autoLayout LeftRight 120 80
+  }
+}

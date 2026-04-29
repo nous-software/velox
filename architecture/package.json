@@ -1,0 +1,17 @@
+{
+  "name": "architecture",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "preview": "likec4 preview",
+    "serve": "likec4 serve"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "likec4": "^1.55.1"
+  }
+}

@@ -1,0 +1,53 @@
+// Velox architecture — specification.
+// Element kinds, tags, and relationship styles shared by every view.
+
+specification {
+  element actor {
+    style { shape person }
+  }
+  element system
+  element externalSystem {
+    style {
+      shape rectangle
+      color muted
+    }
+  }
+  element webapp {
+    style { shape browser }
+  }
+  element nativeApp {
+    style { shape rectangle }
+  }
+  element service {
+    style { shape component }
+  }
+  element datastore {
+    style { shape storage }
+  }
+  element broker {
+    style {
+      shape queue
+      color gray
+    }
+  }
+
+  tag frontend
+  tag backend
+  tag data
+  tag adminPlane
+  tag federation
+
+  relationship async {
+    color amber
+    line dotted
+    head diamond
+  }
+  relationship federation {
+    color green
+    line dashed
+  }
+  relationship realtime {
+    color indigo
+    line solid
+  }
+}

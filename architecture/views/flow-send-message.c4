@@ -1,0 +1,36 @@
+// Dynamic sequence view: sending a message in a chat where all participants live on this instance.
+// Write path:  client -WebTransport-> Delivery (epoch lease via Valkey CAS)
+// Kafka path:  Delivery -> Kafka -> Store (persist) + Delivery pods (push) + Push GW (offline)
+// Storage:     Store -> Scylla  (ciphertext stored exactly once; Kafka is transit only)
+
+views {
+  dynamic view flowSendMessageLocal {
+    title "Flows / Send Message (Local Chat)"
+    description "Local chat send path. Client constructs the MLS commit; Delivery serialises via the Valkey epoch lease (CAS) and publishes to Kafka. Store is the sole persistent sink (Scylla); Delivery pods and Push Gateway fan out to online and offline recipients."
+    variant sequence
+
+    user -> velox.webUI "type and send"
+    velox.webUI -[realtime]-> velox.deliveryService "request epoch lease (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: issue epoch N lease to client"
+    velox.webUI <- velox.deliveryService "epoch N lease granted"
+    velox.webUI -> velox.webUI "construct MLS Commit for epoch N; encrypt application message"
+    velox.webUI -[realtime]-> velox.deliveryService "submit commit + ciphertext (WebTransport)"
+    velox.deliveryService -> velox.deliveryValkey "CAS: advance epoch N → N+1 (lease released)"
+    parallel {
+      velox.deliveryService -[async]-> velox.kafka "publish → messages topic"
+      velox.deliveryService -[async]-> velox.kafka "publish → push-notifications topic"
+    }
+    velox.webUI <- velox.deliveryService "ACK (epoch N committed)"
+
+    // Kafka fans out concurrently — Store is the only persistent sink.
+    parallel {
+      velox.kafka -> velox.storeService "consume messages"
+      velox.kafka -> velox.deliveryService "consume messages → push to online recipients"
+      velox.kafka -> velox.pushGateway "consume push-notifications"
+    }
+
+    velox.storeService -> velox.scylla "persist MLS commit + ciphertext (sole permanent store)"
+    velox.deliveryService -[realtime]-> velox.webUI "push via WebTransport → online recipients"
+    velox.pushGateway -> apns "notify → offline iOS recipients"
+  }
+}

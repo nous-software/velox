@@ -1,0 +1,11 @@
+// Focused view: Store service with its direct neighbors only.
+
+views {
+  view serviceStore of velox.storeService {
+    title "Services / Store"
+    description "Sole persistent sink for chat data. Consumes the Kafka messages topic and writes MLS commits and ciphertext to Scylla (partitioned by chat_id, epoch; append-only). Serves paginated history reads via gRPC to API."
+    global style veloxColors
+    include -> velox.storeService ->
+    autoLayout LeftRight 120 80
+  }
+}

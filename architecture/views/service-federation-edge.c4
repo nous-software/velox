@@ -1,0 +1,11 @@
+// Focused view: Federation Edge — inbound federation gateway.
+
+views {
+  view serviceFederationEdge of velox.federationEdge {
+    title "Services / Federation Edge"
+    description "Stateless inbound federation gateway. Terminates mTLS, verifies the ed25519 envelope, and routes MIMI endpoints to the owning internal service. Holds no private keys, no state. WIP — endpoints track draft-ietf-mimi-protocol."
+    global style veloxColors
+    include -> velox.federationEdge ->
+    autoLayout LeftRight 120 80
+  }
+}

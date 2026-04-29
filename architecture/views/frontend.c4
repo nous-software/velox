@@ -1,0 +1,19 @@
+// Frontend surface: how the three client apps reach user-facing services.
+
+views {
+  view frontends of velox {
+    title "Frontend / User Surface"
+    description "How client apps reach user-facing services: Identity for auth and key unlock, API for chat and membership management, Delivery for realtime MLS traffic, and object storage for encrypted media."
+    global style veloxColors
+    include
+      user,
+      velox.webUI,
+      velox.desktopApp,
+      velox.mobileApp,
+      velox.identityService,
+      velox.apiService,
+      velox.deliveryService,
+      objectStorage
+    autoLayout TopBottom 100 90
+  }
+}

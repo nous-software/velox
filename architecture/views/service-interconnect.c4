@@ -1,0 +1,11 @@
+// Focused view: Interconnect (federation bridge) with its direct neighbors only.
+
+views {
+  view serviceInterconnect of velox.interconnectService {
+    title "Services / Interconnect"
+    description "Outbound federation transport and per-chat hub coordinator. Sole holder of the instance ed25519 private key. Signs and delivers outbound MIMI payloads to peer Federation Edges over mTLS. Owns hub lease and fencing token in Interconnect Valkey."
+    global style veloxColors
+    include -> velox.interconnectService ->
+    autoLayout LeftRight 120 80
+  }
+}

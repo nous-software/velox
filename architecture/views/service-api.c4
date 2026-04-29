@@ -1,0 +1,11 @@
+// Focused view: API service with its direct neighbors only.
+
+views {
+  view serviceApi of velox.apiService {
+    title "Services / API"
+    description "Management-only service: chat and membership CRUD, history reads delegated to Store, WASM plugin host. Not on the message hot path — Delivery owns realtime traffic."
+    global style veloxColors
+    include -> velox.apiService ->
+    autoLayout LeftRight 120 80
+  }
+}

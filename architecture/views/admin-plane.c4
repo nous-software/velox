@@ -1,0 +1,17 @@
+// Admin plane: separate deployment for the operator console, plugin registry, runtime config.
+
+views {
+  view adminPlaneView of velox {
+    title "Admin / Admin Plane"
+    description "Operator console, Admin API, plugin registry, runtime config, and audit log. Deployed separately from user-facing services."
+    global style veloxColors
+    include
+      adminOperator,
+      velox.adminUI,
+      velox.adminAPI,
+      velox.adminPostgres,
+      velox.kafka,
+      objectStorage
+    autoLayout TopBottom 110 90
+  }
+}
