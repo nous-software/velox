@@ -1,37 +1,10 @@
 // Focused view: Push Gateway with its direct neighbors only.
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view servicePush of velox.pushGateway {
     title "Services / Push Gateway"
-    description '''
-      Consumes the Kafka `push-notifications` topic and dispatches to APNs, FCM, and
-      Web Push. Kept separate from Delivery to isolate third-party vendor dependencies.
-
-      ---
-
-      **APNs (Apple Push Notification service)** — Apple's delivery channel for iOS and macOS.
-      Push Gateway connects via the APNs HTTP/2 API using a provider certificate or token auth.
-
-      **FCM (Firebase Cloud Messaging)** — Google's push channel for Android and web.
-      Push Gateway uses the FCM HTTP v1 API with OAuth 2.0 service account credentials.
-
-      **Web Push / VAPID** — Browser push standard (RFC 8030 + RFC 8292). VAPID lets Push
-      Gateway authenticate with browser push services without a vendor account.
-
-      **Device token** — Platform-specific identifier registered by the mobile app with
-      Identity at login. Push Gateway looks it up to address a specific device on APNs/FCM.
-
-      **Silent push** — Push notification that wakes the app in the background without
-      displaying a banner. Used to trigger MLS state sync on the device before a visible
-      notification appears, so the decrypted preview is ready immediately.
-    '''
-    include *
+    description "Consumes the Kafka push-notifications topic and dispatches silent wakeup pushes to APNs (iOS/macOS), FCM (Android/web), and Web Push (VAPID). Isolated from Delivery to ring-fence third-party vendor dependencies."
+    global style veloxColors
     include -> velox.pushGateway ->
     autoLayout LeftRight 120 80
   }

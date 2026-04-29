@@ -1,37 +1,10 @@
 // Focused view: Store service with its direct neighbors only.
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view serviceStore of velox.storeService {
     title "Services / Store"
-    description '''
-      Sole persistent sink for all chat data. Consumes Kafka `messages` topic, writes MLS
-      commits and ciphertext to Scylla, and serves paginated history reads via gRPC.
-
-      ---
-
-      **Scylla (ScyllaDB)** — Wide-column datastore, Cassandra-compatible. Data is
-      partitioned by `(chat_id, epoch)` enabling efficient sequential reads. Append-only;
-      MLS commits are never mutated after they are written.
-
-      **CQL (Cassandra Query Language)** — Query language used by Store to read and write
-      Scylla. Supports efficient range scans over `(chat_id, epoch)` partitions for history.
-
-      **Append-only** — MLS commits are written once and never updated. History is always
-      reconstructed by replaying commits in epoch order from Scylla.
-
-      **Paginated history** — Store exposes a gRPC API for reading messages in pages,
-      ordered by `(chat_id, epoch)`. Called by API on behalf of reconnecting clients.
-
-      **Kafka consumer group** — Store reads `messages` as a consumer group so multiple
-      Store replicas share the load without double-writing to Scylla.
-    '''
-    include *
+    description "Sole persistent sink for chat data. Consumes the Kafka messages topic and writes MLS commits and ciphertext to Scylla (partitioned by chat_id, epoch; append-only). Serves paginated history reads via gRPC to API."
+    global style veloxColors
     include -> velox.storeService ->
     autoLayout LeftRight 120 80
   }

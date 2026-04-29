@@ -1,39 +1,12 @@
 // System landscape (C4 Level 1): Velox as a single box + external actors and systems.
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view index {
     title "Landscape"
-    description '''
-      Top-level context: who uses Velox and which external systems it depends on.
-
-      ---
-
-      **E2EE (End-to-End Encryption)** — Only the communicating clients hold the keys.
-      Velox stores and forwards ciphertext only; the server never sees plaintext.
-
-      **MLS (Messaging Layer Security)** — RFC 9420. Cryptographic group key-agreement used
-      for all chats. Every participant derives the same group secret without a trusted server.
-
-      **Federation** — Matrix-style replication. Chats can span multiple independent Velox
-      instances; each instance stores messages for its own members and syncs with peers.
-
-      **KEK (Key Encryption Key)** — Derived client-side from the user's passphrase.
-      Wraps the real encryption key before server storage; the server never sees the KEK.
-
-      **APNs / FCM / Web Push** — Vendor push services for delivering offline notifications
-      to iOS (APNs), Android (FCM), and browser (VAPID/Web Push) clients.
-
-      **OIDC (OpenID Connect)** — Optional external identity provider path for commercial
-      deployments. Login still requires a local KEK unlock; OIDC is a convenience layer only.
-    '''
+    description "Top-level context: who uses Velox and which external systems it depends on."
+    global style veloxColors
     include *
-    style user { color green }
+    style user { color primary }
     style adminOperator { color indigo }
     style velox { color primary }
     autoLayout TopBottom 110 90

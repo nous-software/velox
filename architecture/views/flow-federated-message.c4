@@ -1,61 +1,10 @@
 // Dynamic sequence view: fanning out a message to a participant on another Velox instance.
-//
-// Assumes an established federated group — all member credentials are already embedded
-// in the shared ratchet tree on both sides. No Identity call needed per commit.
-//
-// Federation trust layers:
-//   - mutual TLS — MIMI-conformant channel + hostname authentication (WIP)
-//   - ed25519 instance signing key — hop-independent payload authenticity
-// Hub model (MIMI): per chat, a single home instance is the HUB. Defaults to the
-// chat-creator's instance; changes only via explicit hub-transfer state events.
-// This diagram assumes the LOCAL instance is the hub. (Non-hub flow: local client's
-// op is forwarded to the peer hub via Interconnect before commit.)
+// Assumes an established federated group AND that this instance is the chat hub.
 
 views {
   dynamic view flowFederatedMessage {
     title "Flows / Send Message (Federated)"
-    description '''
-      Covers the outbound leg when a chat has participants on another Velox instance and
-      THIS instance is the hub. The client constructs the MLS commit; Delivery serialises
-      it via the Valkey epoch lease and publishes both a local messages event and a
-      federation-egress event to Kafka. Interconnect picks up federation-egress, signs the
-      payload with the instance ed25519 key, and POSTs it to the peer's Federation Edge
-      over mutual TLS. The peer's Edge verifies the signature and routes to its own
-      Delivery via the MIMI `/notify` endpoint.
-
-      ---
-
-      **Federation** — Matrix-style replication. Interconnect forwards MLS commits to peer
-      Velox instances; the peer re-publishes them to its local `messages` topic.
-
-      **Ratchet tree** — MLS group state shared across all instances when the group was formed
-      or last updated. Contains every member's credential at their leaf node. No per-commit
-      credential fetch is needed — both sides already have it.
-
-      **federation-egress** — Kafka topic produced by Delivery when a message must reach a
-      peer. Interconnect consumes it, signs the payload with the instance ed25519 key, and
-      POSTs to the peer's Federation Edge over mTLS.
-
-      **ed25519** — Edwards-curve digital signature scheme. Each Velox instance signs outbound
-      federation payloads with its private key; the public key is in `.well-known/velox/server`.
-      Peer instances verify signatures independently of the TLS hop — defence in depth over
-      mTLS.
-
-      **DNS SRV + .well-known** — How Interconnect discovers a peer: `_velox._tcp.<domain>`
-      SRV record gives the endpoint; `.well-known/velox/server` (migrating to
-      `.well-known/mimi-protocol-directory` — WIP) provides the ed25519 public key.
-
-      **Hub (MIMI, WIP)** — The Velox instance responsible for ordering MLS commits for a
-      given chat. Defaults to the chat-creator's instance; changes only via an explicit
-      hub-transfer state event. Replaces the earlier dynamic "leader election" language.
-
-      **Federation Edge** — Peer's inbound gateway. Terminates mTLS, verifies our ed25519
-      signature, and routes `/notify` / `/update` to the peer's Delivery.
-
-      **MIMI endpoints (WIP)** — The outbound POST targets `/notify/{roomId}` on the peer's
-      Federation Edge per draft-ietf-mimi-protocol. Names and wire format may change before
-      the spec is finalised.
-    '''
+    description "Outbound leg when a chat has remote participants and this instance is the hub. Local fan-out runs as in the local-chat flow; additionally Interconnect signs and POSTs to the peer's Federation Edge over mTLS."
     variant sequence
 
     velox.webUI -[realtime]-> velox.deliveryService "request epoch lease (WebTransport)"

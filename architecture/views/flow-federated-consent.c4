@@ -1,61 +1,10 @@
 // Dynamic sequence view: MIMI consent round-trip before first contact with a remote user.
-//
-// STATUS: WIP. This flow tracks draft-ietf-mimi-protocol's /requestConsent + /updateConsent
-// endpoints. Both the MIMI spec and Velox's implementation of it are work-in-progress —
-// endpoint shapes, payload fields, retry semantics, and revocation behaviour may change.
-//
-// Why consent exists:
-//   - MIMI treats unsolicited KeyPackage release as an anti-abuse / privacy concern.
-//     Without consent, a remote instance could enumerate users on a peer by asking for
-//     KeyPackages. Consent is the MIMI-mandated gate before /keyMaterial is allowed.
-//
-// Triggers:
-//   - First attempt to add a remote user to a chat, where the local consent cache for
-//     (local inviter, remote user/domain) is empty or expired.
-//   - An explicit "request chat" / "start DM" UX action targeting a remote user.
-//
-// Outcome: Identity on the peer records a consent decision; peer pushes /updateConsent
-// back to us; local Identity writes the consent token; the original operation (typically
-// the add-member call) retries automatically.
+// STATUS: WIP — tracks draft-ietf-mimi-protocol's /requestConsent + /updateConsent endpoints.
 
 views {
   dynamic view flowFederatedConsent {
     title "Flows / Federated Consent (MIMI, WIP)"
-    description '''
-      First-contact consent round-trip between two Velox instances using MIMI's
-      `/requestConsent` + `/updateConsent` endpoints. This flow runs BEFORE a remote
-      KeyPackage can be fetched (see flow-federated-member-add for what happens once
-      consent is on file).
-
-      ---
-
-      **Consent (WIP, MIMI)** — Per-user, per-requester permission to release a KeyPackage.
-      Bob (on otherVelox) must approve Alice's (on velox) request before velox can retrieve
-      Bob's KeyPackage from otherVelox. Without this, otherVelox's Federation Edge refuses
-      the `/keyMaterial` call with HTTP 403.
-
-      **/requestConsent/{targetDomain} (WIP)** — MIMI endpoint on the TARGET user's instance.
-      Carries the requester's identity, the target user's identifier, and the stated purpose
-      (e.g. "add to chat {roomId}"). Peer Identity records the request and surfaces it in
-      the target user's UI.
-
-      **/updateConsent/{requesterDomain} (WIP)** — MIMI endpoint on the REQUESTER's instance.
-      Peer Identity calls it to convey the user's decision (granted / denied / revoked).
-      Requester Identity writes the consent token to Identity Postgres, keyed by
-      (local-user, remote-user-or-domain).
-
-      **Consent token** — Opaque blob returned in the /updateConsent payload. Cached by the
-      local Identity so subsequent MIMI calls can skip re-prompting until the token expires
-      or is revoked.
-
-      **mimi:// URIs (WIP)** — MIMI's canonical identifier scheme
-      (`mimi://domain/u/user`). Velox is migrating toward these for all cross-instance
-      identifiers; until then, legacy Velox identifiers travel alongside in a compat field.
-
-      **Spec status (WIP)** — MIMI is currently draft-ietf-mimi-protocol-05 (Oct 2025), an
-      IETF Internet-Draft. Endpoint names, payload encoding (TLS presentation language), and
-      lifecycle semantics may change before publication.
-    '''
+    description "First-contact consent round-trip required before a remote KeyPackage can be fetched. Alice's add-member attempt returns 202 while Interconnect requests consent from the peer; the peer calls back via Federation Edge once Bob decides."
     variant sequence
 
     // Alice initiates: "add Bob to chat" hits a consent wall because we have no token.
@@ -72,7 +21,7 @@ views {
     velox.interconnectService -> otherVelox "POST /requestConsent — mTLS + ed25519-signed"
     velox.interconnectService <- otherVelox "202 Accepted — request queued for Bob"
 
-    // Peer surfaces the request to Bob; Bob decides. (That happens on otherVelox — opaque from here.)
+    // Peer surfaces the request to Bob; Bob decides. (Opaque from here.)
     velox.interconnectService -> velox.interconnectService "wait for peer-initiated /updateConsent callback"
 
     // Peer calls us back via our Federation Edge with Bob's decision.
@@ -84,8 +33,10 @@ views {
     otherVelox <- velox.federationEdge "200 OK (ed25519-signed ACK)"
 
     // Now the original add-member flow can proceed automatically.
-    velox.identityService -[async]-> velox.apiService "consent granted → resume pending add-member"
-    velox.apiService -> velox.webUI "push: consent granted for bob@otherVelox — add can now proceed"
-    // Flow continues as flow-federated-member-add (/keyMaterial fetch, Commit + Welcome, …).
+    // Consent decision fans out via Kafka so the async pattern matches the rest of the architecture.
+    velox.identityService -[async]-> velox.kafka "produce consent-events: {requester, target, decision}"
+    velox.kafka -[async]-> velox.apiService "consume consent-events — resume pending add-member"
+    velox.apiService -[async]-> velox.deliveryService "fan-out consent-granted state change to subscribers"
+    velox.webUI <- velox.deliveryService "WebTransport: consent granted — add-member can now proceed"
   }
 }

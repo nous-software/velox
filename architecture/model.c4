@@ -1,98 +1,25 @@
 // Velox architecture — model.
 // Actors, external systems, the Velox system + its containers, and all relationships.
-//
-// Key design points:
-//   - True E2E via MLS (RFC 9420). MLS state (commits + ratchet tree snapshots) lives in
-//     Scylla. All encryption / decryption / commit construction happens client-side; the
-//     server never sees plaintext or private key material.
-//   - Passphrase-derived KEK wraps the real encryption key, stored server-side by Identity.
-//     First-factor login (username/password + optional OTP) is separate from the KEK challenge.
-//   - KeyPackages (per-client, pre-published, single-use) are stored in Identity Postgres.
-//     Local clients publish to local Identity; peer instances fetch via federation.
-//   - WebTransport (QUIC) is bidirectional: clients send messages TO Delivery and receive FROM it.
-//     Delivery brokers a per-chat epoch lease via Valkey CAS as a Velox-specific optimisation
-//     to serialise concurrent commits and avoid wasted client work. RFC 9420 §3.2 explicitly
-//     sanctions server-side orchestration ("a promise from an orchestration server") — the
-//     lease is therefore spec-compatible. Pure client-side resolution remains the fallback
-//     path if the lease store is unavailable.
-//     On a successful commit: Delivery publishes to Kafka; Store consumes and persists to Scylla.
-//   - API is management-only (chat/membership CRUD, history delegation). Not on the message hot path.
-//   - Matrix-style federation: chats are replicated across participating instances;
-//     a single home instance is designated the per-chat HUB (MIMI terminology; replaces
-//     the earlier "leader election" language). Hub defaults to the chat creator's instance
-//     with explicit hub-transfer state events; non-hub instances forward MLS ops via
-//     Interconnect. This matches draft-ietf-mimi-protocol's hub/follower model.
-//   - Federation trust: DNS SRV + .well-known for discovery; mutual TLS for channel +
-//     hostname authentication (MIMI-conformant); ed25519 instance signing keys for
-//     hop-independent payload authenticity (Velox belt-and-suspenders over mTLS).
-//   - Federation Edge is a stateless gateway that terminates inbound mTLS, verifies the
-//     ed25519 envelope, and routes MIMI endpoint calls to the owning internal service:
-//       /keyMaterial, /identifierQuery, /requestConsent, /updateConsent → Identity
-//       /update, /notify, /submitMessage                                → Delivery
-//       /groupInfo, /reportAbuse                                        → API
-//       hub-coordination (non-hub forward)                              → Interconnect
-//     Outbound signed egress remains the responsibility of Interconnect alone — it is
-//     the only service that holds the private instance ed25519 key.
-//   - Consent precedes first-contact remote KeyPackage release: before Alice@velox1 can
-//     fetch Bob@velox2's KeyPackage, Bob's instance MUST have recorded an explicit consent
-//     decision. Identity owns the consent store and consent endpoints.
-//   - All services stateless; an external load balancer fronts each service
-//     (not modeled as a container).
-//   - Admin plane is a separate deployment (Admin UI + Admin API) for plugin registry,
-//     feature flags, IdP config, and audit.
-//   - Plugins ship as WASM (wazero host in Go services); artifacts in the blob store.
-//   - Each service owns its own Postgres or Valkey instance; Scylla and Kafka are
-//     intentionally shared (single canonical message + commit store, single event bus).
-//   - Push notification payload schema is intentionally undefined here and will be
-//     specified during implementation. It must remain compatible with E2EE (no plaintext).
-//
-// ----------------------------------------------------------------------------------
-// MIMI alignment — WIP
-// ----------------------------------------------------------------------------------
-// Velox targets interoperability with the IETF MIMI protocol (draft-ietf-mimi-protocol,
-// currently at -05, Oct 2025). BOTH the MIMI spec AND Velox's MIMI conformance are
-// work-in-progress:
-//   - MIMI is an Internet-Draft, not yet an RFC. Endpoint paths, wire formats (TLS
-//     presentation language), identifier schemes (mimi:// URIs), consent flows, and
-//     hub-transfer semantics may change before publication.
-//   - Velox implements the MIMI-shaped architecture first; on-the-wire conformance
-//     (mTLS, TLS presentation encoding, mimi:// URIs, draft-ietf-mimi-content message
-//     format) is planned iteratively and tracked per endpoint.
-//   - Compatibility with Matrix is intentionally pursued via MIMI's Linearized Matrix
-//     bridge (draft-ralston-mimi-linearized-matrix), not by implementing the Matrix
-//     S2S API / event DAG / state-resolution directly. This is strictly a WIP direction.
-// Every element / flow referencing MIMI in this model carries a NOTE (WIP) marker.
-// ----------------------------------------------------------------------------------
+// Architectural rationale, design decisions, and glossary live in README.md.
 
 model {
   // -------- External actors --------
   user = actor "User" {
-    description '''
-      A person using Velox to chat. Pseudonymous by default
-      (passphrase-only account); may optionally use an external IdP.
-    '''
+    description "A person using Velox to chat. Pseudonymous by default."
   }
 
   adminOperator = actor "Admin / Operator" {
-    description '''
-      Operates a Velox instance. Audits system state, manages plugins,
-      toggles runtime features, configures IdPs.
-    '''
+    description "Operates a Velox instance. Audits state, manages plugins, toggles features, configures IdPs."
   }
 
   // -------- External systems --------
   otherVelox = externalSystem "Other Velox Instance" {
     #federation
-    description '''
-      A federated peer Velox deployment. Communicates over mutual TLS carrying
-      ed25519-signed MIMI payloads (draft-ietf-mimi-protocol, WIP). Hosts chats
-      as hub for some rooms and as follower for others; participates in
-      hub-transfer events.
-    '''
+    description "A federated peer Velox deployment. mTLS + ed25519-signed MIMI payloads (WIP)."
   }
 
   idp = externalSystem "External IdP" {
-    description "OIDC provider. Opt-in convenience path for commercial deployments."
+    description "OIDC provider. Opt-in convenience path."
   }
 
   apns = externalSystem "Apple Push Notification Service" {
@@ -108,55 +35,35 @@ model {
   }
 
   dns = externalSystem "DNS" {
-    description '''
-      Federation discovery: SRV records (_velox._tcp.<domain>) plus
-      https://<domain>/.well-known/velox/server JSON with endpoint
-      and ed25519 signing keys. DNSSEC recommended.
-    '''
+    description "Federation discovery: SRV + .well-known/velox/server."
   }
 
   objectStorage = externalSystem "S3-Compatible Object Storage" {
-    description '''
-      Encrypted media blobs (client-uploaded via pre-signed URLs) and
-      plugin WASM artifacts. Backend chosen by the deployer (MinIO, AWS S3, ...).
-    '''
+    description "Encrypted media blobs and plugin WASM artifacts."
   }
 
   // -------- The Velox system --------
   velox = system "Velox" {
-    description '''
-      Federated, E2E-encrypted chat. MLS over WebTransport; Kafka is
-      the internal event bus; chats replicate across instances.
-    '''
+    description "Federated, E2E-encrypted chat. MLS over WebTransport; Kafka event bus."
 
     // ---- Frontends ----
     webUI = webapp "Web UI" {
       #frontend
       technology "React, Next.js"
       icon tech:react
-      description '''
-        Browser client. Derives KEK from user passphrase, unwraps the
-        stored encryption key, runs the MLS client. Never sends plaintext
-        or private key material to the server.
-      '''
+      description "Browser client. Derives KEK, runs MLS client. Plaintext never leaves the device."
     }
 
     desktopApp = nativeApp "Desktop App" {
       #frontend
       technology "Tauri / native"
-      description '''
-        Native desktop client (Linux / macOS / Windows). Same MLS + key
-        handling as Web UI; may cache wrapped keys locally.
-      '''
+      description "Native desktop client (Linux / macOS / Windows). Same MLS + key handling as Web UI."
     }
 
     mobileApp = nativeApp "Mobile App" {
       #frontend
       technology "React Native / native"
-      description '''
-        iOS / Android client. Registers APNs/FCM device tokens via Identity
-        so Push Gateway can reach the device while the app is backgrounded.
-      '''
+      description "iOS / Android client. Registers APNs/FCM device tokens via Identity."
     }
 
     // ---- Admin plane (separate deployment) ----
@@ -164,229 +71,123 @@ model {
       #adminPlane
       technology "React, Next.js"
       icon tech:react
-      description '''
-        Operator console. Audits state, manages plugins, feature flags,
-        IdP configuration. Separate deployment from the user-facing web app.
-      '''
+      description "Operator console. Separate deployment from the user-facing web app."
     }
 
     adminAPI = service "Admin API" {
       #adminPlane
-      #backend
       technology "Go"
-      description '''
-        Backend for the Admin UI. Centralizes RBAC, audit logging,
-        feature-flag CRUD, plugin registry mutations. Stateless.
-      '''
+      description "Backend for the Admin UI. Centralises RBAC, audit logging, feature flags, plugin registry."
     }
 
     // ---- Core backend services ----
     apiService = service "API" {
       #backend
       technology "Go"
-      description '''
-        Management-only service. Handles chat and membership CRUD,
-        delegates history reads to Store. Not on the message hot path.
-        Hosts WASM plugin points for message lifecycle hooks.
-      '''
+      description "Management-only: chat + membership CRUD; delegates history reads to Store. Hosts WASM plugin points."
     }
 
     deliveryService = service "Delivery" {
       #backend
       technology "Go, WebTransport"
-      description '''
-        Realtime hub over bidirectional WebTransport (QUIC). Clients construct MLS
-        commits client-side and send them through this service; Delivery validates
-        the per-chat epoch lease (Valkey CAS: current epoch + holder + TTL) and
-        forwards the commit to Kafka. The lease is a Velox-specific optimisation to
-        serialise concurrent commits — RFC 9420 leaves this to client-side resolution,
-        but the lease avoids wasted work. Publishes commits, push-notifications, and
-        user-state to Kafka; consumes messages + user-state to push to connected clients.
-        Ephemeral user-state (presence, typing, …) and rate limits also live in Valkey.
-      '''
+      description "Realtime hub over bidirectional WebTransport. Validates the per-chat epoch lease (Valkey CAS) and forwards MLS commits to Kafka. Never sees plaintext."
     }
 
     storeService = service "Store" {
       #backend
       technology "Go"
-      description '''
-        Consumes the messages topic from Kafka and persists MLS commits,
-        ciphertext, and group state snapshots to Scylla. Exposes paginated
-        history read API for the API service and reconnecting clients.
-      '''
+      description "Sole persistent sink. Consumes the messages topic and persists MLS commits + ciphertext to Scylla. Serves paginated history reads."
     }
 
     identityService = service "Identity" {
       #backend
       technology "Go"
-      description '''
-        Auth gate, key vault, KeyPackage directory, and federation-facing user
-        directory. Stores username / password-hash / OTP / challenge artifacts /
-        passphrase-wrapped encryption keys, per-client MLS KeyPackages, and
-        per-user consent records for remote KeyPackage release. Issues JWTs after
-        a successful KEK challenge. Acts as the MLS Authentication Service
-        (RFC 9420 §5.3.1) for LOCAL users only. Optionally federates to external
-        IdPs (still gated by a KEK unlock on the client).
-
-        Serves MIMI federation endpoints (WIP) via Federation Edge:
-          - /keyMaterial/{user}       — local users' KeyPackages
-          - /identifierQuery/{domain} — user directory search (searchability-policy scoped)
-          - /requestConsent, /updateConsent — per-user consent for remote first contact
-
-        NOTE (WIP): MIMI endpoint shapes follow draft-ietf-mimi-protocol. Both the
-        IETF spec and Velox's conformance to it are work-in-progress — names and
-        payload formats may evolve.
-      '''
+      description "Auth gate, key vault, KeyPackage directory, federation user directory. Issues JWTs after KEK challenge. MLS Authentication Service for local users. Owns consent records (MIMI — WIP)."
+      metadata {
+        kek-challenge-TODO "HMAC (symmetric, server holds verifier → offline brute-force risk on DB compromise) vs. asymmetric signing (KEK derives keypair, public key registered → server cannot brute-force from DB). Decision required before security review."
+      }
     }
 
     federationEdge = service "Federation Edge" {
-      #backend
       #federation
       technology "Go"
-      description '''
-        Stateless inbound federation gateway. Terminates mutual TLS from peer Velox
-        instances, verifies the ed25519-signed envelope on the request body, parses
-        the MIMI endpoint path, and routes the call to the internal service that
-        owns that endpoint. Holds no private key material, no session state, and no
-        durable storage of its own.
-
-        Routing (WIP — endpoint paths track draft-ietf-mimi-protocol):
-          - /keyMaterial, /identifierQuery, /requestConsent, /updateConsent → Identity
-          - /update, /notify, /submitMessage                                → Delivery
-          - /groupInfo, /reportAbuse                                        → API
-          - hub-coordination forwards (peer thinks we are hub but we are not) → Interconnect
-
-        NOTE (WIP): MIMI is an IETF Internet-Draft. Endpoint names, payload encoding
-        (TLS presentation language), and transport guarantees may change. Until MIMI
-        is finalised, Federation Edge also accepts the legacy Velox-native federation
-        envelope to preserve compatibility with peers that have not yet adopted MIMI.
-      '''
+      description "Stateless inbound federation gateway. Terminates mTLS, verifies ed25519 envelope, routes MIMI endpoints to internal services. Holds no private keys, no state. (WIP — endpoints track draft-ietf-mimi-protocol.)"
     }
 
     interconnectService = service "Interconnect" {
-      #backend
       #federation
       technology "Go"
-      description '''
-        Outbound federation transport + per-chat hub coordinator. Narrowed scope
-        (inbound federation termination moved to Federation Edge; inbound KeyPackage
-        serving moved to Identity via Federation Edge).
-
-        Responsibilities:
-          - Consumes federation-egress from Kafka; signs payloads with the instance
-            ed25519 private key and delivers to the peer instance's Federation Edge
-            over mutual TLS. This is the ONLY service that holds the private
-            instance key.
-          - Makes outbound MIMI calls on behalf of local services (remote KeyPackage
-            fetch, remote consent request, identifier query against a peer domain).
-          - Discovers peer endpoints via DNS (SRV + .well-known/velox/server;
-            migrating to .well-known/mimi-protocol-directory as MIMI-conformant peers
-            appear — WIP).
-          - Runs per-chat hub coordination (lease + fencing token in Valkey): when
-            this instance is NOT the hub, forwards local client MLS ops to the peer
-            hub; when it IS the hub, republishes received peer commits to the local
-            messages topic. Hub assignment defaults to the chat-creator's instance
-            and transfers via explicit hub-transfer state events.
-      '''
+      description "Outbound federation transport + per-chat hub coordinator. Sole holder of the instance ed25519 private key. Owns hub lease + fencing token in its Valkey."
     }
 
     pushGateway = service "Push Gateway" {
       #backend
       technology "Go"
-      description '''
-        Consumes push-notifications topic and dispatches to APNs / FCM /
-        Web Push. Kept separate from Delivery to isolate third-party
-        vendor dependencies and their reliability characteristics.
-      '''
+      description "Consumes push-notifications and dispatches to APNs / FCM / Web Push. Isolated from Delivery."
     }
 
     // ---- Data plane ----
-    // Each service that needs Postgres or Valkey owns its own instance —
-    // databases are never shared between services. Scylla and Kafka are
-    // intentionally shared (Scylla is the one canonical message store;
-    // Kafka is the cross-service event bus).
-
     apiPostgres = datastore "API Postgres" {
       #data
       technology "PostgreSQL"
       icon tech:postgresql
-      description "Chat metadata and membership records only. All MLS state (commits, ratchet tree snapshots) lives in Scylla."
+      description "Chat metadata + membership only. (MLS state lives in Scylla.)"
     }
 
     identityPostgres = datastore "Identity Postgres" {
       #data
       technology "PostgreSQL"
       icon tech:postgresql
-      description "Identity records, password hashes, OTP secrets, challenge artifacts, passphrase-wrapped encryption keys, per-client MLS KeyPackages, and per-user consent records (MIMI /requestConsent state — WIP)."
+      description "Identities, password hashes, OTP secrets, challenges, passphrase-wrapped keys, KeyPackages, device push tokens, consent records."
     }
 
     adminPostgres = datastore "Admin Postgres" {
       #data
       technology "PostgreSQL"
       icon tech:postgresql
-      description "Runtime config, feature flags, plugin registry metadata, audit log."
+      description "Runtime config, feature flags, plugin registry, audit log."
     }
 
     apiValkey = datastore "API Valkey" {
       #data
       technology "Valkey"
       icon tech:redis
-      description "API query cache, session cache, API-side rate-limit counters."
+      description "Query cache, sessions, API rate-limit counters."
     }
 
     identityValkey = datastore "Identity Valkey" {
       #data
       technology "Valkey"
       icon tech:redis
-      description "Auth session state, OTP verification state, login rate-limits."
+      description "Auth session state, OTP verification state, login rate limits."
     }
 
     deliveryValkey = datastore "Delivery Valkey" {
       #data
       technology "Valkey"
       icon tech:redis
-      description '''
-        Per-chat epoch lease: current epoch + lease holder + expiry (CAS).
-        Ratchet tree hot cache (public state, not confidential). Ephemeral
-        user-state (presence, typing, …), per-connection rate limits, WebTransport
-        session hints. NOTE: a pod-local in-memory tree cache is being considered
-        to remove the Valkey ratchet-tree copy and reduce attack surface.
-      '''
+      description "Per-chat epoch lease (CAS), ratchet tree hot cache, ephemeral user-state, per-connection rate limits."
     }
 
     interconnectValkey = datastore "Interconnect Valkey" {
       #data
       technology "Valkey"
       icon tech:redis
-      description '''
-        Per-chat hub lease + fencing token (CAS). Outbound federation retry
-        backoff state and peer-reachability hints. Owned by Interconnect —
-        preserves the "each service owns its own Valkey" principle.
-      '''
+      description "Per-chat hub lease + fencing token (CAS), outbound federation retry state."
     }
 
     scylla = datastore "Scylla" {
       #data
       technology "ScyllaDB / Cassandra"
       icon tech:cassandra
-      description '''
-        Single canonical store for all chat data: MLS commits, message
-        ciphertext, and group state snapshots. Partitioned by (chat_id,
-        epoch) for sequential reads; append-only. Shared by design —
-        Store is the only service that reads/writes it.
-      '''
+      description "Single canonical store for all chat data. Partitioned by (chat_id, epoch); append-only. Store is the only reader/writer."
     }
 
     kafka = broker "Kafka" {
       #data
       technology "Apache Kafka"
       icon tech:kafka
-      description '''
-        Central event bus. Logical topics: messages, federation-egress,
-        user-state, push-notifications, admin-events, plugin-events.
-        Shared by design. Inbound federation is verified by Interconnect
-        and republished directly to messages — no separate ingress topic.
-      '''
+      description "Central event bus. Topics: messages, federation-egress, user-state, push-notifications, admin-events, plugin-events."
     }
 
     // ---- Relationships: frontend -> backend ----
@@ -396,7 +197,7 @@ model {
     webUI -> apiService "chat + membership mgmt, history read" {
       technology "HTTPS"
     }
-    webUI -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state (presence, typing, …)" {
+    webUI -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
       technology "WebTransport / QUIC (bidirectional)"
     }
 
@@ -406,7 +207,7 @@ model {
     desktopApp -> apiService "chat + membership mgmt, history read" {
       technology "HTTPS"
     }
-    desktopApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state (presence, typing, …)" {
+    desktopApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
       technology "WebTransport / QUIC (bidirectional)"
     }
 
@@ -416,7 +217,7 @@ model {
     mobileApp -> apiService "chat + membership mgmt, history read" {
       technology "HTTPS"
     }
-    mobileApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state (presence, typing, …)" {
+    mobileApp -[realtime]-> deliveryService "submit + receive MLS commits and ciphertext, user-state" {
       technology "WebTransport / QUIC (bidirectional)"
     }
 
@@ -441,21 +242,21 @@ model {
     apiService -> storeService "history read on behalf of clients" {
       technology "gRPC"
     }
-    apiService -> identityService "membership checks; fetch local KeyPackages" {
+    apiService -> identityService "membership checks; fetch local KeyPackages; consent check" {
       technology "gRPC"
     }
-    apiService -> interconnectService "outbound MIMI calls: consent request + remote KeyPackage fetch for member-add (WIP)" {
+    apiService -> interconnectService "outbound MIMI: consent + remote KeyPackage fetch (WIP)" {
       technology "gRPC"
     }
-    apiService -> identityService "local consent check before remote member-add" {
-      technology "gRPC"
-    }
-    apiService -[async]-> kafka "consumes plugin-events for hot-reload" {
+    apiService -[async]-> kafka "consumes plugin-events, consent-events" {
       technology "Kafka consumer"
     }
 
-    deliveryService -[async]-> kafka "produces messages, federation-egress, push-notifications, user-state; consumes messages, user-state" {
-      technology "Kafka"
+    deliveryService -[async]-> kafka "produces: messages, federation-egress, push-notifications, user-state" {
+      technology "Kafka producer"
+    }
+    deliveryService -[async]-> kafka "consumes: messages, user-state" {
+      technology "Kafka consumer"
     }
     deliveryService -> deliveryValkey "epoch leases (CAS), user-state, rate limits, ratchet tree cache" {
       technology "RESP"
@@ -468,11 +269,14 @@ model {
       technology "CQL"
     }
 
-    identityService -> identityPostgres "identity, wrapped keys, challenges, OTP" {
+    identityService -> identityPostgres "identity, wrapped keys, challenges, OTP, consent" {
       technology "SQL"
     }
     identityService -> identityValkey "auth session + OTP state" {
       technology "RESP"
+    }
+    identityService -[async]-> kafka "produces consent-events" {
+      technology "Kafka producer"
     }
 
     interconnectService -[async]-> kafka "consumes federation-egress (outbound only)" {
@@ -486,9 +290,8 @@ model {
     }
 
     // ---- Federation Edge: inbound MIMI termination + routing ----
-    // Edge holds no state and no private keys; it is a thin router. All MIMI
-    // endpoints are served by the internal service that owns the domain.
-    // NOTE (WIP): endpoint paths track draft-ietf-mimi-protocol.
+    // Edge holds no state and no private keys; it is a thin router.
+    // Verified inbound commits flow Edge → Delivery → Kafka (messages topic) — Delivery is the sole producer.
     federationEdge -> identityService "MIMI: /keyMaterial, /identifierQuery, /requestConsent, /updateConsent (WIP)" {
       technology "gRPC"
     }
@@ -501,12 +304,12 @@ model {
     federationEdge -> interconnectService "hub-coordination forward when this instance is non-hub" {
       technology "gRPC"
     }
-    federationEdge -[async]-> kafka "republishes inbound verified commits → messages topic" {
-      technology "Kafka producer"
-    }
 
     pushGateway -[async]-> kafka "consumes push-notifications" {
       technology "Kafka consumer"
+    }
+    pushGateway -> identityService "look up device push tokens by user / device ID" {
+      technology "gRPC"
     }
   }
 
@@ -529,6 +332,12 @@ model {
   velox.adminAPI -> objectStorage "store/fetch plugin WASM artifacts" {
     technology "HTTPS"
   }
+  velox.apiService -> objectStorage "download plugin WASM bundles" {
+    technology "HTTPS, pre-signed URLs"
+  }
+  velox.deliveryService -> objectStorage "download plugin WASM bundles" {
+    technology "HTTPS, pre-signed URLs"
+  }
 
   velox.identityService -> idp "OIDC login (optional)" {
     technology "OIDC"
@@ -540,7 +349,7 @@ model {
   otherVelox -[federation]-> velox.federationEdge "inbound MIMI (terminated at Edge, ed25519 verified, routed per endpoint)" {
     technology "mTLS + ed25519-signed payloads (WIP: draft-ietf-mimi-protocol)"
   }
-  velox.interconnectService -> dns "peer discovery: SRV + .well-known/velox/server (migrating to .well-known/mimi-protocol-directory — WIP)" {
+  velox.interconnectService -> dns "peer discovery (SRV + .well-known)" {
     technology "DNS + HTTPS"
   }
 

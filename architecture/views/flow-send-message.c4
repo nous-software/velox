@@ -1,44 +1,12 @@
 // Dynamic sequence view: sending a message in a chat where all participants live on this instance.
-//
-// Write path:  client -WebTransport-> Delivery  (Delivery holds per-chat epoch lease via Valkey CAS)
+// Write path:  client -WebTransport-> Delivery (epoch lease via Valkey CAS)
 // Kafka path:  Delivery -> Kafka -> Store (persist) + Delivery pods (push) + Push GW (offline)
 // Storage:     Store -> Scylla  (ciphertext stored exactly once; Kafka is transit only)
 
 views {
   dynamic view flowSendMessageLocal {
     title "Flows / Send Message (Local Chat)"
-    description '''
-      Client constructs the MLS commit locally, acquires the current epoch lease from
-      Delivery over WebTransport, and submits the commit. Delivery validates the lease,
-      advances the epoch in Valkey (CAS), then publishes to Kafka. Store and Push Gateway
-      consume independently; Delivery pods push to live recipients.
-
-      ---
-
-      **MLS (Messaging Layer Security)** — RFC 9420. Encryption, decryption, and commit
-      construction happen entirely client-side. The server only forwards ciphertext; no
-      plaintext is ever stored.
-
-      **Epoch** — A versioned state of the MLS group. Each Commit advances the epoch by
-      exactly 1. The Commit at epoch N (specifically its UpdatePath secrets, combined with
-      the ratchet tree state at N) is used to derive the key schedule for epoch N+1 — so
-      epochs cannot be skipped.
-
-      **Epoch Lease** — VELOX-SPECIFIC OPTIMISATION (not in RFC 9420). A short-lived grant
-      (`{epoch: N, holder: clientId, expires: TTL}`) stored in Delivery Valkey that admits
-      only one committer per epoch. RFC 9420 leaves commit-ordering to client-side
-      resolution (losers retry); the lease avoids that wasted work in practice.
-
-      **CAS (Compare-And-Swap)** — Atomic Valkey operation. The epoch only advances if the
-      stored value still matches, preventing two clients committing at the same epoch.
-
-      **WebTransport** — Bidirectional QUIC protocol. The client uses the same connection to
-      request the lease, submit the commit, and receive the ACK — multiple independent streams,
-      no head-of-line blocking.
-
-      **Kafka fan-out** — After a successful commit, Delivery publishes to `messages` and
-      `push-notifications`. Store and Push Gateway consume independently with no coupling.
-    '''
+    description "Local chat send path. Client constructs the MLS commit; Delivery serialises via the Valkey epoch lease (CAS) and publishes to Kafka. Store is the sole persistent sink (Scylla); Delivery pods and Push Gateway fan out to online and offline recipients."
     variant sequence
 
     user -> velox.webUI "type and send"

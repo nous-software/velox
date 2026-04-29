@@ -1,36 +1,9 @@
 // Dynamic sequence view: admin uploads a WASM plugin; running services hot-load it.
-//
-// Plugin storage:  WASM artifact → objectStorage (S3-compatible)
-// Plugin registry: metadata + version → adminPostgres
-// Hot-reload:      adminAPI publishes plugin-events → Kafka → services fetch + load via wazero
 
 views {
   dynamic view flowPluginInstall {
     title "Flows / Plugin Install"
-    description '''
-      Admin uploads a plugin through the Admin UI.
-      The WASM artifact is stored in object storage; a registry row is written to Admin Postgres.
-      A Kafka event triggers all WASM-capable services to hot-reload without restart.
-
-      ---
-
-      **WASM (WebAssembly)** — Binary instruction format for sandboxed execution. Plugins ship
-      as `.wasm` artifacts that run inside Go services without access to host memory or syscalls
-      beyond the explicitly provided host ABI.
-
-      **wazero** — Pure-Go WebAssembly runtime (no CGo). Hosts WASM plugins inside Velox
-      services. Each plugin runs in an isolated wazero module with scoped capabilities.
-
-      **Hot-reload** — Services subscribe to the Kafka `plugin-events` topic. On a new event
-      they fetch the artifact from object storage and swap in the new wazero module without
-      restarting the process; in-flight requests finish against the old module.
-
-      **sha256 checksum** — Stored alongside the plugin registry row. Services verify the
-      downloaded artifact against the checksum before loading, preventing tampered artifacts.
-
-      **plugin-events** — Kafka topic published by Admin API after a successful plugin
-      registration. Carries the plugin ID, version, and sha256 so consumers know what to fetch.
-    '''
+    description "Operator uploads a plugin via Admin UI; the WASM artifact lands in object storage, a registry row (id, version, sha256) goes to Admin Postgres, and a plugin-events Kafka message triggers all WASM-capable services to hot-reload via wazero."
     variant sequence
 
     adminOperator -> velox.adminUI "upload plugin.wasm + metadata"

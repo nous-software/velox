@@ -1,0 +1,30 @@
+// Global tag + actor styles — applied once here, effective across all views.
+//
+// Color semantics:
+//   blue    → #frontend    client apps (Web, Desktop, Mobile)
+//   amber   → #backend     internal services (API, Delivery, Identity, …)
+//   gray    → #data        data stores (Postgres, Valkey, Scylla, Kafka)
+//   indigo  → #adminPlane  operator-facing services (Admin UI, Admin API)
+//   green   → #federation  federation-facing services and peer instances
+//   primary → user / velox system itself
+//   muted   → externalSystem  third-party dependencies (push services, IdP, …)
+//
+// Relationship line semantics (defined in specification.c4):
+//   amber dotted ◇  → async       Kafka pub/sub (fire-and-forget)
+//   green dashed    → federation  cross-instance over mTLS + ed25519
+//   indigo solid    → realtime    bidirectional WebTransport / QUIC
+//   default solid   → (sync)      request/response over gRPC or HTTPS
+//
+// Note: amber is used for both #backend elements and async relationship lines.
+// These are visually distinct contexts (box background vs edge style) so the
+// overlap is acceptable; the legend view documents both meanings.
+
+global {
+  styleGroup veloxColors {
+    style element.tag = #frontend   { color blue }
+    style element.tag = #backend    { color amber }
+    style element.tag = #data       { color gray }
+    style element.tag = #adminPlane { color indigo }
+    style element.tag = #federation { color green }
+  }
+}

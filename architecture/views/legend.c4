@@ -1,0 +1,24 @@
+// Legend view — color coding and relationship line semantics for all Velox diagrams.
+
+views {
+  view legend {
+    title "Legend"
+    description "Color coding and line styles used across all Velox diagrams. Blue = frontend, amber = backend, gray = data, indigo = admin plane, green = federation. Async edges are amber dotted; realtime edges are indigo solid; federation edges are green dashed."
+    global style veloxColors
+    include
+      velox.webUI,
+      velox.mobileApp,
+      velox.apiService,
+      velox.deliveryService,
+      velox.kafka,
+      velox.adminUI,
+      velox.adminAPI,
+      velox.federationEdge,
+      velox.interconnectService,
+      velox.apiPostgres,
+      user,
+      adminOperator,
+      otherVelox
+    autoLayout LeftRight 100 60
+  }
+}

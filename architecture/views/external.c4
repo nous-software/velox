@@ -1,36 +1,10 @@
 // External integrations: outbound hops to third-party services (push, IdP, object storage).
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view externalIntegrations of velox {
     title "External / Integrations"
-    description '''
-      Outbound connections to third-party services (push notifications, IdP, object storage).
-
-      ---
-
-      **APNs (Apple Push Notification service)** — Apple's push infrastructure for iOS and
-      macOS. Push Gateway connects via APNs HTTP/2 API to wake backgrounded mobile clients.
-
-      **FCM (Firebase Cloud Messaging)** — Google's push infrastructure for Android and web.
-      Push Gateway uses the FCM HTTP v1 API.
-
-      **VAPID (Voluntary Application Server Identification)** — Standard (RFC 8292) for
-      authenticating Web Push payloads without a vendor account. Used for browser push.
-
-      **OIDC (OpenID Connect)** — Identity layer on top of OAuth 2.0. An opt-in convenience
-      path for external identity providers (e.g. Google, Okta). Identity still enforces a
-      local KEK unlock after OIDC succeeds; the IdP never grants access to encrypted data.
-
-      **Pre-signed URL** — Short-lived, scoped URL issued by S3-compatible storage.
-      Clients upload/download encrypted media directly, bypassing Velox backend services.
-      Plugin WASM artifacts are also fetched by services via pre-signed URLs.
-    '''
+    description "Outbound connections to third-party services: push notifications (APNs, FCM, Web Push), external IdP (OIDC), and S3-compatible object storage."
+    global style veloxColors
     include
       velox.identityService,
       velox.pushGateway,

@@ -1,41 +1,10 @@
 // Focused view: API service with its direct neighbors only.
-// Uses the `of <element>` scope + `include -> X ->` predicate to pull just
-// incoming and outgoing edges — keeps the diagram uncluttered.
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view serviceApi of velox.apiService {
     title "Services / API"
-    description '''
-      Management-only service. Handles chat and membership CRUD; delegates history reads
-      to Store. Not on the message hot path — Delivery owns that.
-
-      ---
-
-      **Management-only** — API does not handle MLS commits. That runs through Delivery
-      (epoch lease via Valkey CAS). API manages chat and membership metadata in Postgres.
-
-      **Membership change** — When a user is added to or removed from a chat, API records
-      the change in Postgres, fetches the new member's KeyPackage (local via Identity, or
-      remote via Interconnect), and returns it to the client for inclusion in an MLS Add
-      / Remove commit.
-
-      **WASM plugin hooks** — API hosts wazero-sandboxed plugin points for message lifecycle
-      events (e.g. content moderation, webhooks). Plugins are hot-loaded via `plugin-events`.
-
-      **gRPC** — Binary RPC protocol (HTTP/2 + Protocol Buffers) used for internal
-      service-to-service calls: API ↔ Store (history reads), API ↔ Identity (membership
-      checks, local KeyPackage lookup), API ↔ Interconnect (remote KeyPackage fetch).
-
-      **RBAC** — Role-based access control. API enforces membership and permission checks
-      against Identity before allowing chat operations.
-    '''
-    include *
+    description "Management-only service: chat and membership CRUD, history reads delegated to Store, WASM plugin host. Not on the message hot path — Delivery owns realtime traffic."
+    global style veloxColors
     include -> velox.apiService ->
     autoLayout LeftRight 120 80
   }

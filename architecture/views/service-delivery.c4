@@ -1,43 +1,10 @@
 // Focused view: Delivery service with its direct neighbors only.
 
 views {
-  style element.tag = #frontend   { color blue }
-  style element.tag = #backend    { color sky }
-  style element.tag = #data       { color secondary }
-  style element.tag = #adminPlane { color indigo }
-  style element.tag = #federation { color green }
-
   view serviceDelivery of velox.deliveryService {
     title "Services / Delivery"
-    description '''
-      Realtime hub over bidirectional WebTransport (QUIC). Sequences MLS commits via
-      Valkey epoch leases, then publishes to Kafka for fan-out.
-
-      ---
-
-      **WebTransport** — Bidirectional QUIC protocol. Clients send commits and receive
-      pushes over the same persistent connection with independent per-stream flow control.
-
-      **Epoch Lease** — Short-lived lock (`{epoch: N, holder: clientId, expires: TTL}`)
-      stored in Valkey. Delivery issues it before a commit and advances the epoch on success.
-
-      **CAS (Compare-And-Swap)** — Atomic Valkey operation used to enforce epoch ordering.
-      Only one client can hold the lease at a time; the epoch only advances if the stored
-      value matches, preventing two clients from committing at the same epoch.
-
-      **Ratchet Tree** — MLS internal data structure tracking group membership. Delivery
-      hot-caches the current ratchet tree in Valkey so lease holders can validate commits
-      without a round-trip to Scylla.
-
-      **user-state** — Umbrella Kafka topic + Valkey namespace for ephemeral per-user
-      signals: presence (online/offline), typing indicators, read receipts, and future
-      ephemeral props. Tracked in Delivery Valkey and fanned out via Kafka.
-
-      **Client-side commit construction** — The client (not Delivery) encrypts and
-      constructs every MLS Commit. Delivery only validates the epoch lease and forwards —
-      it never sees plaintext or private key material.
-    '''
-    include *
+    description "Realtime hub over bidirectional WebTransport. Sequences MLS commits via Valkey epoch leases (CAS), then publishes to Kafka for fan-out to Store, other Delivery pods, Push Gateway, and federation egress. Never sees plaintext."
+    global style veloxColors
     include -> velox.deliveryService ->
     autoLayout LeftRight 120 80
   }

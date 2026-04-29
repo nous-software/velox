@@ -27,7 +27,7 @@ specification {
   element broker {
     style {
       shape queue
-      color secondary
+      color gray
     }
   }
 
